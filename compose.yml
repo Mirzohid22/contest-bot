@@ -1,0 +1,60 @@
+# One stack = one bot. Run exactly one `app` container per bot token.
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # Sized for a 4 GB host shared with the app.
+    command: >
+      postgres
+      -c shared_buffers=768MB
+      -c effective_cache_size=2GB
+      -c work_mem=8MB
+      -c max_connections=40
+    shm_size: 256mb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    # Admin panel on localhost only; reach it through an SSH tunnel or the https profile.
+    ports:
+      - "127.0.0.1:3000:3000"
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  # Optional: public HTTPS for the admin panel.  docker compose --profile https up -d
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on: [app]
+    environment:
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+
+volumes:
+  pgdata:
+  caddy_data:
