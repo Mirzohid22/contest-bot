@@ -1,6 +1,0 @@
-{$ADMIN_DOMAIN} {
-	encode gzip
-	# /metrics stays private; scrape it from the host on 127.0.0.1:3000.
-	respond /metrics 404
-	reverse_proxy app:3000
-}

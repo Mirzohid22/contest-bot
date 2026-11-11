@@ -16,19 +16,24 @@ The design and the reasons behind it are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 - A bot token from [@BotFather](https://t.me/BotFather).
 - Your Telegram user id (ask [@userinfobot](https://t.me/userinfobot)).
-- A server with Docker. Sized for 2 vCPU / 4 GB RAM.
+- A server with Docker and about 1.5 GB of free memory.
 
 ## Deploy
 
+Every push to `main` runs the tests and, if they pass, builds the image and pushes it to `ghcr.io/mirzohid22/contest-bot`. The server only pulls that image; it does not need the source code.
+
+On the server, once:
+
 ```bash
-git clone <this repo> contest-bot && cd contest-bot
-cp .env.example .env
+docker login ghcr.io
 ```
 
-Edit `.env`: set `BOT_TOKEN`, `ADMIN_IDS`, and a long random `POSTGRES_PASSWORD`. Then:
+(Use a GitHub token with the `read:packages` scope as the password.)
+
+Put [compose.yml](compose.yml) and a copy of [.env.example](.env.example) named `.env` into a folder, for example `~/contest-bot`. Edit `.env`: set `BOT_TOKEN`, `ADMIN_IDS`, and a long random `POSTGRES_PASSWORD`. Then:
 
 ```bash
-docker compose up -d --build
+docker compose pull && docker compose up -d
 ```
 
 ```bash
@@ -39,26 +44,30 @@ The log line `started` with your bot's username means it is running. Database mi
 
 **Run exactly one `app` container per bot token.** The rate limiter lives in memory, and Telegram rejects two readers of the same token.
 
+The defaults fit a small server shared with other apps: Postgres is limited to 512 MB and the bot to 768 MB. On a server of its own, raise the `PG_*` values in `.env`.
+
+To build on the server instead of pulling (needs about 1.5 GB of free memory):
+
+```bash
+docker compose -f compose.yml -f compose.build.yml up -d --build
+```
+
 ### Opening the admin panel
 
 Send `/admin` to the bot. It replies with a sign-in link that works once, for five minutes.
 
-Without a domain, the panel listens only on the server's localhost. Open a tunnel from your computer, then use the link:
+The panel listens only on the server's localhost, port 3200. Open a tunnel from your computer, then use the link:
 
 ```bash
-ssh -L 3000:127.0.0.1:3000 user@your-server
+ssh -L 3200:127.0.0.1:3200 user@your-server
 ```
 
-With a domain, point it at the server, set `ADMIN_DOMAIN=admin.example.com` and `PUBLIC_URL=https://admin.example.com` in `.env`, and start Caddy too (it obtains the certificate):
-
-```bash
-docker compose --profile https up -d
-```
+For a public address, put the server's web server in front of port 3200 and set `PUBLIC_URL` to that address. [deploy/nginx-site.conf.example](deploy/nginx-site.conf.example) has an nginx site with the commands.
 
 ### Updating
 
 ```bash
-git pull && docker compose up -d --build
+docker compose pull && docker compose up -d
 ```
 
 A restart loses nothing: Telegram keeps undelivered updates for 24 hours, and messages that must arrive are stored in the database.
@@ -66,7 +75,7 @@ A restart loses nothing: Telegram keeps undelivered updates for 24 hours, and me
 ### Backups
 
 ```bash
-docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | gzip > backups/contest-$(date +%F-%H%M).sql.gz
+mkdir -p backups && docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | gzip > backups/contest-$(date +%F-%H%M).sql.gz
 ```
 
 Run this nightly (cron) and before activating or finishing a contest, and copy the file off the server.

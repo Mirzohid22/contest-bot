@@ -1,0 +1,7 @@
+# Build the image from this checkout instead of pulling it:
+#   docker compose -f compose.yml -f compose.build.yml up -d --build
+# Needs about 1.5 GB of free memory while building.
+services:
+  app:
+    build: .
+    image: contest-bot:local

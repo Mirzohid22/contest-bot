@@ -1,4 +1,8 @@
 # One stack = one bot. Run exactly one `app` container per bot token.
+#
+# The server needs only this file and a .env next to it; the image comes from the registry.
+# Defaults are sized for a small server shared with other apps. To build the image on the
+# spot instead of pulling it, add compose.build.yml (see README).
 services:
   postgres:
     image: postgres:17-alpine
@@ -7,14 +11,16 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    # Sized for a 4 GB host shared with the app.
+    # The whole data set is megabytes, so small buffers are enough.
+    # On a server dedicated to the bot, raise these in .env.
     command: >
       postgres
-      -c shared_buffers=768MB
-      -c effective_cache_size=2GB
+      -c shared_buffers=${PG_SHARED_BUFFERS:-256MB}
+      -c effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-768MB}
       -c work_mem=8MB
       -c max_connections=40
-    shm_size: 256mb
+    mem_limit: ${PG_MEM_LIMIT:-512m}
+    shm_size: 128mb
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -22,9 +28,12 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
   app:
-    build: .
+    image: ${IMAGE:-ghcr.io/mirzohid22/contest-bot:latest}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -32,29 +41,16 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-    # Admin panel on localhost only; reach it through an SSH tunnel or the https profile.
+    # Node's heap is capped at 512 MB in the image; the rest is headroom.
+    mem_limit: ${APP_MEM_LIMIT:-768m}
+    # Admin panel on the server's localhost only. Reach it through an SSH tunnel,
+    # or put the server's own web server in front (see deploy/nginx-site.conf.example).
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${ADMIN_PORT:-3200}:3000"
     stop_grace_period: 30s
     logging:
       driver: json-file
       options: { max-size: "20m", max-file: "5" }
 
-  # Optional: public HTTPS for the admin panel.  docker compose --profile https up -d
-  caddy:
-    image: caddy:2-alpine
-    profiles: ["https"]
-    restart: unless-stopped
-    depends_on: [app]
-    environment:
-      ADMIN_DOMAIN: ${ADMIN_DOMAIN:-localhost}
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-
 volumes:
   pgdata:
-  caddy_data:

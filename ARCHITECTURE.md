@@ -19,7 +19,7 @@ Telegram facts in this document were checked against core.telegram.org (Bot API 
 | Contest reset | **Scope by `contest_id`**, never delete | "Reset" = new contest row. Old data stays intact and cannot collide. See 7. |
 | Admin panel | Fastify JSON API + small React SPA served by the same process | One deployable. Login through the bot, no passwords. See 9. |
 | Reuse for other clients | **One stack per client** (own bot token, own database, same image) | Zero tenancy code, full isolation, per-bot rate limits stay separate. See 10. |
-| Deployment | Docker Compose: `app`, `postgres`, `caddy` | Reproducible on any client VPS. |
+| Deployment | Docker Compose: `app` and `postgres`; image built by GitHub Actions and pulled from GHCR | Reproducible on any client VPS, and nothing is compiled on the server. |
 
 ### 1.1 Why TypeScript, and what it costs
 
@@ -104,7 +104,7 @@ Postgres on 2 vCPU with NVMe handles this statement rate. Data size is negligibl
   │ (durable sends)  │    │ Membership   │────────────┤
   └──────────────────┘    │ service      │            │
                           └──────────────┘     ┌──────┴──────┐
-                                               │ Admin API + │◄── Caddy (HTTPS)
+                                               │ Admin API + │◄── SSH tunnel or nginx
                                                │ React SPA   │
                                                └─────────────┘
 ```
@@ -291,7 +291,7 @@ Only hashes of login tokens and session ids are stored.
 
 ## 9. Admin panel
 
-Same process (Fastify), served under `/admin` behind Caddy with HTTPS. Without a domain, reach it through an SSH tunnel.
+Same process (Fastify), served under `/admin` on the server's localhost. Reach it through an SSH tunnel, or through the server's own web server with HTTPS.
 
 - **Auth:** admin Telegram IDs in config. `/admin` in the bot sends a one-time login link (random token, stored hashed, 5-minute life, single use) that sets an `HttpOnly; Secure; SameSite=Strict` session cookie. No passwords.
 - **Contests:** create draft, edit texts and required invites, set prize chat (bot verifies it is admin with invite rights), activate, finish.
@@ -323,16 +323,17 @@ True multi-tenancy (many bots in one process, `bot_id` on every table) is not bu
 
 ## 12. Deployment on the VPS
 
-- Docker Compose: `app`, `postgres:17`, `caddy` (TLS for the admin panel only).
-- `app` image: multi-stage build that compiles the TypeScript and the React admin, then runs the compiled JavaScript on a slim Node LTS image with `--max-old-space-size=512`. The Node version comes from the image; the Node installed on the VPS itself is not used.
-- Run exactly one `app` container per bot (see 1.1).
-- Postgres for 4 GB shared with the app: `shared_buffers=768MB`, `effective_cache_size=2GB`, `work_mem=8MB`, `max_connections=40`. App pool: 16 connections.
-- Add 2 GB swap as a safety net. Firewall: 22, 80, 443 only; Postgres not exposed.
+The VPS turned out to be shared: it already runs two other apps (a Next.js app with Postgres and MinIO, and a URL shortener) behind nginx on ports 80 and 443. About 1.9 GB of the 3.7 GB is free, and the two CPUs are shared. The deployment is sized for that.
+
+- **Image:** GitHub Actions builds it after tests pass and pushes it to `ghcr.io/mirzohid22/contest-bot`. The server pulls it. A build on the server would compete for memory with the live apps.
+- **Compose:** `app` and `postgres:17`. Multi-stage image: compiles the TypeScript and the React admin, runs the compiled JavaScript on a slim Node LTS image with `--max-old-space-size=512`.
+- **Limits:** Postgres 512 MB with `shared_buffers=256MB`, `effective_cache_size=768MB`, `work_mem=8MB`, `max_connections=40`; app 768 MB, pool of 16 connections. The data set is megabytes, so small buffers do not limit it. All of these are variables in `.env`.
+- **Admin panel:** `127.0.0.1:3200` on the server, reached through an SSH tunnel, or through the existing nginx with a subdomain (`deploy/nginx-site.conf.example`).
+- Run exactly one `app` container per bot (see 1.1). Postgres is not exposed outside the compose network.
 - Backups: `pg_dump` nightly and before every contest activation/finish, copied off the server.
 - Logs: structured JSON via `pino`. Metrics: a `/metrics` endpoint (`prom-client`, including event-loop lag) plus the admin dashboard; alerts go to an admin Telegram chat (queue age over threshold, repeated 429s, sponsor unhealthy, poller stalled).
-- Before launch, measure round-trip time from the VPS to `api.telegram.org`; it sets the polling throughput ceiling.
 
----
+**What sharing costs.** During a launch spike the bot and its database compete for CPU with the other apps, in both directions. The 10,000-user measurement in section 13 was taken on a development machine and says nothing about this server. A load test here slows the live apps for a few minutes, so run it at a quiet hour. If the contest matters more than the cost of a second small server, give the bot its own.
 
 ## 13. Testing and load testing
 
@@ -373,7 +374,7 @@ Still to do against real Telegram: a smoke test with a test bot, two test channe
 
 | # | Phase | Scope | State |
 |---|---|---|---|
-| 0 | Skeleton | Repo, config, migrations, Compose, health endpoint | Done. The Docker image has not been built yet (no Docker daemon on the development machine). |
+| 0 | Skeleton | Repo, config, migrations, Compose, health endpoint, image build in CI | Done |
 | 1 | Pipeline | Lanes and limiter, poll loop, per-user sequencing, fake Telegram server | Done, tested |
 | 2 | Gate | `/start`, gate message, membership service (push + fallback), "I subscribed" | Done, tested |
 | 3 | Referrals | Ref codes, attribution, credit transaction, progress view, qualification, outbox | Done, tested |
