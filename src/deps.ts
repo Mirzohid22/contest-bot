@@ -1,7 +1,7 @@
 import type { UserFromGetMe } from "grammy/types";
 import type { Logger } from "pino";
 import type { Config } from "./config.js";
-import type { ContestCache } from "./contest/service.js";
+import type { ContestCache, Leaderboard } from "./contest/service.js";
 import type { Db } from "./db/index.js";
 import type { Membership } from "./member/service.js";
 import type { Tg } from "./tg/gateway.js";
@@ -13,6 +13,7 @@ export interface Deps {
   db: Db;
   tg: Tg;
   cache: ContestCache;
+  leaderboard: Leaderboard;
   member: Membership;
   log: Logger;
   me: UserFromGetMe;

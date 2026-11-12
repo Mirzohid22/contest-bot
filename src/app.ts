@@ -4,7 +4,7 @@ import { sql } from "kysely";
 import { pino, type Logger } from "pino";
 import { buildAdmin } from "./admin/server.js";
 import type { Config } from "./config.js";
-import { ContestCache } from "./contest/service.js";
+import { ContestCache, Leaderboard } from "./contest/service.js";
 import { createDb, migrate } from "./db/index.js";
 import type { Deps } from "./deps.js";
 import { registerHandlers } from "./flow/handlers.js";
@@ -41,8 +41,30 @@ export async function createApp(cfg: Config, logger?: Logger) {
       .catch(() => {});
   });
 
+  // The command menu next to the message field, in each language. Not essential: a
+  // failure is logged and startup goes on.
+  const menus = [
+    { language_code: undefined as "ru" | "en" | undefined, start: "Boshlash", lang: "Tilni oʻzgartirish" },
+    { language_code: "ru" as const, start: "Начать", lang: "Сменить язык" },
+    { language_code: "en" as const, start: "Start", lang: "Change language" },
+  ];
+  for (const m of menus) {
+    tg.fire(
+      tg.lanes.manage.schedule(() =>
+        raw.setMyCommands(
+          [
+            { command: "start", description: m.start },
+            { command: "lang", description: m.lang },
+          ],
+          m.language_code ? { language_code: m.language_code } : {},
+        ),
+      ),
+    );
+  }
+
   const cache = new ContestCache(db);
   const cooldown = new Cooldown();
+  const leaderboard = new Leaderboard(db);
 
   const alert = (key: string, text: string) => {
     if (cooldown.active(`alert:${key}`)) return;
@@ -68,7 +90,7 @@ export async function createApp(cfg: Config, logger?: Logger) {
       .catch((err) => log.warn({ err }, "could not mark sponsor unhealthy"));
   });
 
-  const deps: Deps = { cfg, db, tg, cache, member, log, me, cooldown, alert };
+  const deps: Deps = { cfg, db, tg, cache, leaderboard, member, log, me, cooldown, alert };
 
   const bot = new Bot(cfg.BOT_TOKEN, { botInfo: me, client });
   tg.guard(bot.api);

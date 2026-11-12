@@ -209,8 +209,18 @@ export class FakeTelegram {
     try {
       const chunks: Buffer[] = [];
       for await (const c of req) chunks.push(c as Buffer);
-      const raw = Buffer.concat(chunks).toString("utf8");
-      if (raw) payload = JSON.parse(raw);
+      const body = Buffer.concat(chunks);
+      if (String(req.headers["content-type"] ?? "").startsWith("multipart/form-data")) {
+        // File uploads: keep the plain fields, skip the file parts.
+        const text = body.toString("latin1");
+        for (const m of text.matchAll(/name="([^"]+)"\r\n\r\n([^\r]*)\r\n/g)) {
+          const v = Buffer.from(m[2]!, "latin1").toString("utf8");
+          payload[m[1]!] = /^[[{]/.test(v) ? JSON.parse(v) : /^-?\d+$/.test(v) ? Number(v) : v;
+        }
+      } else {
+        const raw = body.toString("utf8");
+        if (raw) payload = JSON.parse(raw);
+      }
     } catch {
       return this.reply(res, 400, { ok: false, error_code: 400, description: "Bad Request: invalid body" });
     }
@@ -266,6 +276,7 @@ export class FakeTelegram {
       case "getMe":
         return { ...bot, can_join_groups: true, can_read_all_group_messages: false, supports_inline_queries: false };
       case "deleteWebhook":
+      case "setMyCommands":
       case "answerCallbackQuery":
       case "approveChatJoinRequest":
       case "declineChatJoinRequest":
@@ -281,6 +292,23 @@ export class FakeTelegram {
           from: bot,
           text: p.text,
         };
+      case "sendPhoto":
+      case "editMessageCaption": {
+        const id = this.nextMessageId++;
+        return {
+          message_id: method === "sendPhoto" ? id : p.message_id,
+          date: now(),
+          chat: { id: Number(p.chat_id), type: "private" },
+          from: bot,
+          caption: p.caption,
+          photo: [
+            { file_id: `fake-photo-${id}-s`, file_unique_id: `s${id}`, width: 90, height: 90 },
+            { file_id: `fake-photo-${id}`, file_unique_id: `u${id}`, width: 1280, height: 720 },
+          ],
+        };
+      }
+      case "getChatMemberCount":
+        return 1234;
       case "getChatMember": {
         const target = { id: p.user_id, is_bot: p.user_id === this.botId, first_name: "x" };
         if (p.user_id === this.botId) {

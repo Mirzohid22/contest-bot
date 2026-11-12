@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "loadtest": "tsx loadtest/run.ts",
-    "demo": "tsx loadtest/demo.ts"
+    "demo": "TEST_DATABASE_URL=${DEMO_DATABASE_URL:-postgres://localhost:5432/contest_bot_demo_test} tsx loadtest/demo.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

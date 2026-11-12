@@ -1,4 +1,4 @@
-import { type Api, GrammyError } from "grammy";
+import { type Api, GrammyError, type InputFile } from "grammy";
 import type { ChatFullInfo, ChatInviteLink, ChatMember, InlineKeyboardMarkup, Message } from "grammy/types";
 import type { Logger } from "pino";
 import type { Config } from "../config.js";
@@ -106,6 +106,37 @@ export class Tg {
         if (isBlocked(e)) this.onBlocked(chatId);
         throw e;
       });
+  }
+
+  /** A picture with a caption (up to 1024 characters). `photo` is a file_id or an upload. */
+  sendPhoto(chatId: number, photo: string | InputFile, caption: string, o: SendOptions = {}): Promise<Message.PhotoMessage> {
+    return this.lanes.send
+      .schedule(
+        () =>
+          this.raw.sendPhoto(chatId, photo, {
+            caption,
+            parse_mode: "HTML",
+            reply_markup: o.markup,
+          }),
+        { priority: o.priority ?? P.START, chatId, maxAgeMs: o.maxAgeMs },
+      )
+      .catch((e) => {
+        if (isBlocked(e)) this.onBlocked(chatId);
+        throw e;
+      });
+  }
+
+  /** Edits the caption of a picture message. */
+  editCaption(chatId: number, messageId: number, caption: string, markup?: InlineKeyboardMarkup, priority: number = P.EDIT) {
+    return this.lanes.send.schedule(
+      () =>
+        this.raw.editMessageCaption(chatId, messageId, {
+          caption,
+          parse_mode: "HTML",
+          reply_markup: markup,
+        }),
+      { priority, chatId },
+    );
   }
 
   edit(chatId: number, messageId: number, text: string, markup?: InlineKeyboardMarkup, priority: number = P.EDIT) {

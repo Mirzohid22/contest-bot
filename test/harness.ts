@@ -62,6 +62,8 @@ export async function boot(env: Record<string, string> = {}, fakeOpts: FakeOptio
     START_COOLDOWN_MS: "0",
     NEGATIVE_TTL_MS: "0",
     NOTICE_COALESCE_MS: "0",
+    // The assertions read the English texts.
+    DEFAULT_LOCALE: "en",
     ...env,
   });
   const app = await createApp(cfg);

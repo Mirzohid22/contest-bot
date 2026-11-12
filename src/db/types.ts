@@ -6,7 +6,8 @@ export interface Contest {
   prize_chat_id: number | null;
   prize_chat_title: string | null;
   prize_invite_link: string | null;
-  texts: Record<string, string>;
+  texts: Record<string, Record<string, string>>;
+  banner_file_id: string | null;
   created_at: Date;
   started_at: Date | null;
   finished_at: Date | null;
@@ -34,6 +35,12 @@ export interface Participant {
   prize_joined_at: Date | null;
   disqualified_at: Date | null;
   created_at: Date;
+}
+
+/** A participant row plus the language fields of its user. */
+export interface ParticipantWithUser extends Participant {
+  locale: string | null;
+  lang: string | null;
 }
 
 export interface OutboxRow {

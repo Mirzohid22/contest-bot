@@ -128,9 +128,9 @@ describe("admin panel", () => {
 
     // Broadcast: a test goes only to the admin; the real one is queued for the segment.
     const before = h.fake.count("sendMessage");
-    expect((await call("POST", `/contests/${id}/broadcast`, { text: "Hello", segment: "all", test: true })).json().queued).toBe(0);
+    expect((await call("POST", `/contests/${id}/broadcast`, { texts: { en: "Hello" }, segment: "all", test: true })).json().queued).toBe(0);
     await waitFor(() => h.fake.sent(ADMIN_ID).some((c) => c.payload.text === "Hello"), "test broadcast");
-    const real = await call("POST", `/contests/${id}/broadcast`, { text: "Results are in", segment: "all" });
+    const real = await call("POST", `/contests/${id}/broadcast`, { texts: { en: "Results are in" }, segment: "all" });
     expect(real.json().queued).toBe(2);
     await waitFor(
       () => [901, 902].every((u) => h.fake.sent(u).some((c) => c.payload.text === "Results are in")),

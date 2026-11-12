@@ -33,19 +33,25 @@ describe("contest flow", () => {
       "https://t.me/sponsor_a",
       "https://t.me/sponsor_b",
       "check",
+      "lang",
     ]);
 
     // 2. Clicking without subscribing: Telegram is asked, the answer is "not a member".
     h.fake.push(h.fake.click(100, "check"));
     const [edit] = await waitFor(() => h.fake.sent(100, "editMessageText"), "gate edit");
-    expect(edit!.payload.text).toContain("Not subscribed yet: Sponsor A, Sponsor B");
+    expect(edit!.payload.text).toContain("❌ Sponsor A");
+    expect(edit!.payload.text).toContain("❌ Sponsor B");
     expect((await h.participant(100))!.verified_at).toBeNull();
 
     // 3. Subscribing to only one channel is not enough.
     h.fake.push(h.fake.memberChange(SPONSOR_A, 100, true));
     h.fake.push(h.fake.click(100, "check"));
     await waitFor(() => h.fake.sent(100, "editMessageText").length === 2, "second gate edit");
-    expect(h.fake.sent(100, "editMessageText")[1]!.payload.text).toContain("Not subscribed yet: Sponsor B");
+    const second = h.fake.sent(100, "editMessageText")[1]!.payload;
+    expect(second.text).toContain("✅ Sponsor A");
+    expect(second.text).toContain("❌ Sponsor B");
+    // Only the channel still missing keeps its join button.
+    expect(second.reply_markup.inline_keyboard.flat().filter((b: any) => b.url)).toHaveLength(1);
 
     // 4. Both channels: verified, and the message becomes the personal link.
     h.fake.push(h.fake.memberChange(SPONSOR_B, 100, true));
@@ -57,7 +63,8 @@ describe("contest flow", () => {
       "status view",
     );
     expect(status.payload.text).toContain(`https://t.me/${h.fake.botUsername}?start=${me.ref_code}`);
-    expect(status.payload.text).toContain("0 / 2");
+    expect(status.payload.text).toContain("0/2");
+    expect(status.payload.text).toContain("▱▱");
 
     // 5. A friend who starts with the link but does not subscribe is not counted.
     h.fake.push(h.fake.start(201, me.ref_code));
@@ -70,7 +77,7 @@ describe("contest flow", () => {
     h.fake.push(h.fake.click(201, "check"));
     await waitFor(async () => (await h.participant(100))!.invite_count === 1, "first invite");
     expect((await h.participant(100))!.qualified_at).toBeNull();
-    await waitFor(() => h.fake.sent(100).some((c) => c.payload.text.includes("1 / 2")), "progress notice");
+    await waitFor(() => h.fake.sent(100).some((c) => c.payload.text.includes("1/2")), "progress notice");
 
     h.join(202, me.ref_code);
     await waitFor(async () => (await h.participant(100))!.qualified_at, "user 100 qualified");
@@ -109,7 +116,7 @@ describe("contest flow", () => {
     h.fake.push(h.fake.start(204, referrer.ref_code));
     const p204 = await waitFor(() => h.participant(204), "participant 204");
     const contest = (await h.app.deps.cache.active())!.contest as Contest;
-    const results = await Promise.all(Array.from({ length: 20 }, () => credit(h.app.deps.db, contest, p204.id)));
+    const results = await Promise.all(Array.from({ length: 20 }, () => credit(h.app.deps.db, contest, p204.id, "en")));
     expect(results.filter((r) => r.verifiedNow)).toHaveLength(1);
     expect((await h.participant(100))!.invite_count).toBe(before + 2);
   });

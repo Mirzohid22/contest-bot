@@ -111,14 +111,21 @@ Run this nightly (cron) and before activating or finishing a contest, and copy t
 
 ## Running a contest
 
-1. **Contests → New contest.** It starts as a draft; users see nothing yet.
-2. **Sponsor channels.** Add the bot as an administrator of each channel, then add the channel in the panel. Do this days before launch if you can: the bot learns about subscribers from join events, and that is much cheaper than asking Telegram about each user.
-3. **Prize chat.** Add the bot as an administrator with the "Invite users via link" right, then set the chat in the panel. The bot creates a join-request link.
-4. **Messages.** Reword anything the bot says, per contest.
-5. **Activate.** The previously active contest, if any, is finished automatically.
-6. During the contest, the dashboard shows participants by stage and the state of the queues.
-7. **Before awarding prizes:** disqualify fake accounts under Participants, press **Recount invites**, and look at **Final audit**.
-8. **Finish**, or activate the next contest.
+**Contests → New contest** opens a setup wizard:
+
+1. **Details.** Title and the number of invites needed. The contest starts as a draft; users see nothing yet.
+2. **Sponsor channels.** Add the bot as an administrator of each channel, then check and add it. The check shows whether the bot is an admin before anything is saved. Do this days before launch if you can: the bot learns about subscribers from join events, and that is much cheaper than asking Telegram about each user.
+3. **Prize chat.** Add the bot as an administrator with the "Invite users via link" right, then check and use the chat. The bot creates the join-request link.
+4. **Messages and banner.** Every message in Uzbek, Russian and English, with a Telegram-style preview. An optional banner picture is shown with the welcome and progress messages; uploading it sends you a preview in Telegram.
+5. **Launch.** A checklist, then launch. The previously active contest, if any, is finished automatically.
+
+During the contest, **Overview** shows live numbers, the funnel and the queues; **Leaderboard** and **Participants** show who brought whom; **Broadcasts** messages a segment in each person's language.
+
+**Before awarding prizes:** disqualify fake accounts under Participants, open the contest's **Launch** step, press **Recount invites**, and look at **Final audit**. Then **Finish**, or launch the next contest.
+
+### Languages
+
+Users get Uzbek unless their Telegram is set to Russian, and can switch with the 🌐 button or `/lang`. Set `DEFAULT_LOCALE` in `.env` to `ru` or `en` to change the default.
 
 ## What to expect at launch
 
@@ -150,6 +157,7 @@ npm run build --prefix web && npm run dev
 | `npm run typecheck` | TypeScript check |
 | `npm run loadtest` | 10,000 simulated users with Telegram-like rate limits; verifies counts at the end |
 | `npm run dev --prefix web` | Admin panel with hot reload, proxied to a bot on port 3000 |
+| `npm run demo` | Bot and admin panel against the fake Telegram server, with sample data (needs a `contest_bot_demo_test` database) |
 
 Tests use the database in `TEST_DATABASE_URL` (default `postgres://localhost:5432/contest_bot_test`) and wipe it; the helper refuses any database whose name does not contain "test".
 

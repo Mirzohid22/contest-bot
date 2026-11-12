@@ -5,7 +5,8 @@ import { qualifyIfReady } from "../contest/service.js";
 import type { Executor } from "../db/index.js";
 import type { Contest, Participant, Sponsor } from "../db/types.js";
 import type { Deps } from "../deps.js";
-import { defaultTexts } from "../flow/texts.js";
+import { InputFile } from "grammy";
+import { defaultTexts, LOCALES, type Locale, TEXT_KEYS } from "../flow/texts.js";
 import type { Poller } from "../ingest/poller.js";
 import { P } from "../tg/gateway.js";
 import { HttpProblem } from "./server.js";
@@ -64,7 +65,7 @@ export function registerRoutes(api: FastifyInstance, d: Deps, extra: { poller: P
     `);
     let n = 0;
     for (const r of ready) {
-      const done = await db.transaction().execute((trx) => qualifyIfReady(trx, contest, r.id));
+      const done = await db.transaction().execute((trx) => qualifyIfReady(trx, contest, r.id, d.cfg.DEFAULT_LOCALE));
       if (done) n++;
     }
     return n;
@@ -74,7 +75,12 @@ export function registerRoutes(api: FastifyInstance, d: Deps, extra: { poller: P
 
   api.get("/me", async (req) => ({ tg_id: req.adminId, bot: d.me.username }));
 
-  api.get("/texts/defaults", async () => defaultTexts);
+  api.get("/texts/defaults", async () => ({
+    locales: LOCALES,
+    default_locale: d.cfg.DEFAULT_LOCALE,
+    keys: TEXT_KEYS,
+    texts: defaultTexts,
+  }));
 
   api.get("/health", async () => {
     const [q] = await rows(sql<{ outbox: number; joins: number }>`
@@ -153,7 +159,7 @@ export function registerRoutes(api: FastifyInstance, d: Deps, extra: { poller: P
       .object({
         title: z.string().trim().min(1).max(200).optional(),
         required_invites: z.number().int().min(0).max(100000).optional(),
-        texts: z.record(z.string(), z.string().max(4000)).optional(),
+        texts: z.partialRecord(z.enum(LOCALES), z.record(z.string(), z.string().max(4000))).optional(),
       })
       .parse(req.body);
     const before = await contestById(id);
@@ -162,9 +168,17 @@ export function registerRoutes(api: FastifyInstance, d: Deps, extra: { poller: P
     // Keep only overrides that differ from the default, so later default fixes still apply.
     const texts = body.texts
       ? Object.fromEntries(
-          Object.entries(body.texts).filter(
-            ([k, v]) => k in defaultTexts && v.trim() !== "" && v !== defaultTexts[k as keyof typeof defaultTexts],
-          ),
+          Object.entries(body.texts).map(([locale, byKey]) => [
+            locale,
+            Object.fromEntries(
+              Object.entries(byKey).filter(
+                ([k, v]) =>
+                  (TEXT_KEYS as string[]).includes(k) &&
+                  v.trim() !== "" &&
+                  v !== defaultTexts[locale as Locale][k as keyof (typeof defaultTexts)["uz"]],
+              ),
+            ),
+          ]),
         )
       : before.texts;
     const [contest] = await rows(sql<Contest>`
@@ -320,7 +334,8 @@ export function registerRoutes(api: FastifyInstance, d: Deps, extra: { poller: P
     `);
     if (!participant) throw new HttpProblem(404, "Participant not found");
     const invitees = await rows(sql`
-      SELECT i.id, i.user_id, i.verified_at, i.disqualified_at, i.created_at, u.username, u.first_name
+      SELECT i.id, i.user_id, i.verified_at, i.qualified_at, i.disqualified_at, i.created_at, i.invite_count,
+             u.username, u.first_name
         FROM participants i JOIN users u ON u.tg_id = i.user_id
        WHERE i.referred_by = ${id} ORDER BY i.id LIMIT 500
     `);
@@ -400,40 +415,307 @@ export function registerRoutes(api: FastifyInstance, d: Deps, extra: { poller: P
     `);
   });
 
+  // ---- statistics ----
+
+  api.get("/contests/:id/stats", async (req) => {
+    const { id } = idParam.parse(req.params);
+    const { hours } = z.object({ hours: z.coerce.number().int().min(1).max(24 * 30).default(48) }).parse(req.query);
+    await contestById(id);
+    const [funnel] = await rows(sql<Record<string, number>>`
+      SELECT count(*) AS started, count(verified_at) AS verified, count(qualified_at) AS qualified,
+             count(prize_joined_at) AS joined, count(disqualified_at) AS disqualified,
+             count(*) FILTER (WHERE created_at > now() - interval '1 hour') AS started_1h,
+             count(*) FILTER (WHERE created_at > now() - interval '2 hours'
+                                AND created_at <= now() - interval '1 hour') AS started_prev_1h,
+             count(*) FILTER (WHERE verified_at > now() - interval '1 hour') AS verified_1h,
+             count(*) FILTER (WHERE qualified_at > now() - interval '1 hour') AS qualified_1h,
+             coalesce(sum(invite_count), 0) AS invites
+        FROM participants WHERE contest_id = ${id}
+    `);
+    // One row per hour, including empty hours, so the chart has no gaps.
+    const timeline = await rows(sql`
+      WITH h AS (
+        SELECT generate_series(date_trunc('hour', now()) - make_interval(hours => ${hours - 1}),
+                               date_trunc('hour', now()), interval '1 hour') AS t
+      )
+      SELECT h.t,
+             (SELECT count(*) FROM participants p WHERE p.contest_id = ${id}
+                AND p.created_at >= h.t AND p.created_at < h.t + interval '1 hour') AS started,
+             (SELECT count(*) FROM participants p WHERE p.contest_id = ${id}
+                AND p.verified_at >= h.t AND p.verified_at < h.t + interval '1 hour') AS verified,
+             (SELECT count(*) FROM participants p WHERE p.contest_id = ${id}
+                AND p.qualified_at >= h.t AND p.qualified_at < h.t + interval '1 hour') AS qualified
+        FROM h ORDER BY h.t
+    `);
+    // Which sponsor stops people: unverified participants known not to be in each channel.
+    const sponsors = await rows(sql`
+      SELECT s.id, s.title, s.health,
+             (SELECT count(*) FROM channel_members m WHERE m.chat_id = s.chat_id AND m.is_member) AS members_known,
+             (SELECT count(*) FROM participants p
+                JOIN channel_members m ON m.chat_id = s.chat_id AND m.user_id = p.user_id AND NOT m.is_member
+               WHERE p.contest_id = s.contest_id AND p.verified_at IS NULL) AS blocking
+        FROM sponsor_channels s WHERE s.contest_id = ${id} ORDER BY s.position, s.id
+    `);
+    const languages = await rows(sql`
+      SELECT COALESCE(u.locale, CASE WHEN left(u.lang, 2) IN ('uz', 'ru') THEN left(u.lang, 2)
+                                     ELSE ${d.cfg.DEFAULT_LOCALE} END) AS locale,
+             count(*) AS n
+        FROM participants p JOIN users u ON u.tg_id = p.user_id
+       WHERE p.contest_id = ${id} GROUP BY 1 ORDER BY 2 DESC
+    `);
+    return { funnel, timeline, sponsors, languages };
+  });
+
+  api.get("/contests/:id/leaderboard", async (req) => {
+    const { id } = idParam.parse(req.params);
+    const { limit } = z.object({ limit: z.coerce.number().int().min(1).max(500).default(100) }).parse(req.query);
+    return rows(sql`
+      SELECT p.id, p.user_id, u.username, u.first_name, p.invite_count, p.qualified_at, p.prize_joined_at,
+             p.disqualified_at,
+             (SELECT count(*) FROM participants i
+               WHERE i.referred_by = p.id AND i.verified_at IS NULL) AS pending
+        FROM participants p JOIN users u ON u.tg_id = p.user_id
+       WHERE p.contest_id = ${id} AND p.invite_count > 0
+       ORDER BY (p.disqualified_at IS NULL) DESC, p.invite_count DESC, p.id
+       LIMIT ${limit}
+    `);
+  });
+
+  // ---- chat checks (used by the setup wizard before anything is saved) ----
+
+  api.post("/chats/inspect", async (req) => {
+    const { chat, purpose } = z
+      .object({ chat: z.string().min(1).max(200), purpose: z.enum(["sponsor", "prize"]) })
+      .parse(req.body);
+    const info = await tg.getChat(parseChatRef(chat));
+    const me = await tg.getChatMember(info.id, d.me.id);
+    const isAdmin = me.status === "administrator" || me.status === "creator";
+    const canInvite = me.status === "creator" || ("can_invite_users" in me && me.can_invite_users === true);
+    const members = await tg.lanes.manage.schedule(() => tg.raw.getChatMemberCount(info.id)).catch(() => null);
+    let problem: string | null = null;
+    if (!isAdmin) problem = "The bot is not an administrator of this chat. Add it as an admin, then check again.";
+    else if (purpose === "prize" && !canInvite) problem = "Give the bot the “Invite users via link” admin right.";
+    else if (purpose === "sponsor" && !info.username && !canInvite) {
+      problem = "This channel is private: give the bot the “Invite users via link” right so it can make a join link.";
+    }
+    return {
+      id: info.id,
+      title: info.title ?? String(info.id),
+      type: info.type,
+      username: info.username ?? null,
+      members,
+      bot_status: me.status,
+      can_invite_users: canInvite,
+      ok: problem === null,
+      problem,
+    };
+  });
+
+  /** Asks Telegram again whether the bot is still an admin in every sponsor channel. */
+  api.post("/contests/:id/sponsors/check", async (req) => {
+    const { id } = idParam.parse(req.params);
+    const sponsors = await rows(sql<Sponsor>`SELECT * FROM sponsor_channels WHERE contest_id = ${id} ORDER BY position, id`);
+    const out = [];
+    for (const s of sponsors) {
+      const m = await tg.getChatMember(s.chat_id, d.me.id).catch(() => null);
+      const health = m && (m.status === "administrator" || m.status === "creator") ? "ok" : "bot_not_admin";
+      if (health !== s.health) await sql`UPDATE sponsor_channels SET health = ${health} WHERE id = ${s.id}`.execute(db);
+      out.push({ ...s, health });
+    }
+    cache.invalidate();
+    return out;
+  });
+
+  api.post("/contests/:id/sponsors/order", async (req) => {
+    const { id } = idParam.parse(req.params);
+    const { ids } = z.object({ ids: z.array(z.number().int().positive()).max(100) }).parse(req.body);
+    await db.transaction().execute(async (trx) => {
+      for (const [i, sid] of ids.entries()) {
+        await sql`UPDATE sponsor_channels SET position = ${i + 1} WHERE id = ${sid} AND contest_id = ${id}`.execute(trx);
+      }
+    });
+    cache.invalidate();
+    return { ok: true };
+  });
+
+  // ---- banner ----
+
+  const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+  const MAX_IMAGE = 10 * 1024 * 1024;
+  api.addContentTypeParser(IMAGE_TYPES, { parseAs: "buffer", bodyLimit: MAX_IMAGE }, (_req, body, done) =>
+    done(null, body),
+  );
+
+  /**
+   * Uploads the picture to Telegram once (sent to the admin's own chat as a preview) and
+   * keeps its file_id: every later message reuses it without uploading again.
+   */
+  api.put("/contests/:id/banner", { bodyLimit: MAX_IMAGE }, async (req) => {
+    const { id } = idParam.parse(req.params);
+    const type = String(req.headers["content-type"] ?? "").split(";")[0]!.trim();
+    if (!IMAGE_TYPES.includes(type) || !Buffer.isBuffer(req.body)) {
+      throw new HttpProblem(400, "Upload a JPEG, PNG or WebP picture");
+    }
+    const contest = await contestById(id);
+    if (contest.status === "finished") throw new HttpProblem(400, "A finished contest cannot be edited");
+    const image = req.body as Buffer;
+    const msg = await tg.sendPhoto(
+      req.adminId,
+      new InputFile(image, `banner.${type.split("/")[1]}`),
+      `Banner for <b>${contest.title.replace(/[<>&]/g, "")}</b>. This is how it looks in the bot.`,
+      { priority: P.IMPORTANT },
+    );
+    const fileId = msg.photo[msg.photo.length - 1]!.file_id;
+    await db.transaction().execute(async (trx) => {
+      await sql`UPDATE contests SET banner_file_id = ${fileId} WHERE id = ${id}`.execute(trx);
+      await sql`
+        INSERT INTO contest_banners (contest_id, content_type, image) VALUES (${id}, ${type}, ${image})
+        ON CONFLICT (contest_id) DO UPDATE
+          SET content_type = EXCLUDED.content_type, image = EXCLUDED.image, uploaded_at = now()
+      `.execute(trx);
+    });
+    cache.invalidate();
+    await audit(req.adminId, "contest.banner", { id });
+    return contestById(id);
+  });
+
+  api.delete("/contests/:id/banner", async (req) => {
+    const { id } = idParam.parse(req.params);
+    await sql`UPDATE contests SET banner_file_id = NULL WHERE id = ${id}`.execute(db);
+    await sql`DELETE FROM contest_banners WHERE contest_id = ${id}`.execute(db);
+    cache.invalidate();
+    await audit(req.adminId, "contest.banner_remove", { id });
+    return contestById(id);
+  });
+
+  api.get("/contests/:id/banner", async (req, reply) => {
+    const { id } = idParam.parse(req.params);
+    const [b] = await rows(sql<{ content_type: string; image: Buffer }>`
+      SELECT content_type, image FROM contest_banners WHERE contest_id = ${id}
+    `);
+    if (!b) throw new HttpProblem(404, "No banner");
+    return reply.type(b.content_type).header("cache-control", "private, max-age=60").send(b.image);
+  });
+
+  // ---- broadcasts ----
+
+  const SEGMENTS = {
+    all: sql`TRUE`,
+    verified: sql`p.verified_at IS NOT NULL`,
+    not_verified: sql`p.verified_at IS NULL`,
+    qualified: sql`p.qualified_at IS NOT NULL AND p.disqualified_at IS NULL`,
+    not_qualified: sql`p.verified_at IS NOT NULL AND p.qualified_at IS NULL`,
+    qualified_not_joined: sql`p.qualified_at IS NOT NULL AND p.prize_joined_at IS NULL AND p.disqualified_at IS NULL`,
+  } as const;
+  const segmentName = z.enum(Object.keys(SEGMENTS) as [keyof typeof SEGMENTS, ...(keyof typeof SEGMENTS)[]]);
+
+  /** The language each user gets messages in, as SQL (same rule as pickLocale). */
+  const userLocaleSql = sql`COALESCE(u.locale, CASE WHEN left(u.lang, 2) IN ('uz', 'ru') THEN left(u.lang, 2) ELSE ${d.cfg.DEFAULT_LOCALE} END)`;
+
+  api.get("/contests/:id/broadcast/estimate", async (req) => {
+    const { id } = idParam.parse(req.params);
+    const { segment } = z.object({ segment: segmentName }).parse(req.query);
+    const r = await rows(sql<{ locale: string; n: number }>`
+      SELECT ${userLocaleSql} AS locale, count(*) AS n
+        FROM participants p JOIN users u ON u.tg_id = p.user_id
+       WHERE p.contest_id = ${id} AND u.blocked_at IS NULL AND ${SEGMENTS[segment]}
+       GROUP BY 1
+    `);
+    return { total: r.reduce((a, x) => a + x.n, 0), by_locale: Object.fromEntries(r.map((x) => [x.locale, x.n])) };
+  });
+
   api.post("/contests/:id/broadcast", async (req) => {
     const { id } = idParam.parse(req.params);
     const body = z
       .object({
-        text: z.string().trim().min(1).max(4000),
-        segment: z.enum(["all", "verified", "not_verified", "qualified", "not_qualified"]),
+        texts: z.object({
+          uz: z.string().trim().max(4000).optional(),
+          ru: z.string().trim().max(4000).optional(),
+          en: z.string().trim().max(4000).optional(),
+        }),
+        buttons: z
+          .array(z.object({ text: z.string().trim().min(1).max(64), url: z.string().url().startsWith("https://") }))
+          .max(6)
+          .default([]),
+        segment: segmentName,
         test: z.boolean().default(false),
       })
       .parse(req.body);
     await contestById(id);
-    const payload = { text: body.text };
+
+    const given = LOCALES.filter((l) => body.texts[l]);
+    if (given.length === 0) throw new HttpProblem(400, "Write the message in at least one language");
+    // A language left empty falls back to the default language, or the first one written.
+    const fallback = body.texts[d.cfg.DEFAULT_LOCALE] ? d.cfg.DEFAULT_LOCALE : given[0]!;
+    const markup = body.buttons.length > 0 ? { inline_keyboard: body.buttons.map((b) => [b]) } : undefined;
+    const payloadFor = (l: Locale) => ({ text: body.texts[l] || body.texts[fallback]!, ...(markup ? { markup } : {}) });
 
     // A test goes only to the admin who pressed the button: bad HTML shows up here, not in 10,000 chats.
     if (body.test) {
-      await tg.send(req.adminId, body.text, { priority: P.IMPORTANT });
+      for (const l of given) {
+        const p = payloadFor(l);
+        await tg.send(req.adminId, p.text, { priority: P.IMPORTANT, markup });
+      }
       return { queued: 0, test: true };
     }
 
-    const segment = {
-      all: sql`TRUE`,
-      verified: sql`p.verified_at IS NOT NULL`,
-      not_verified: sql`p.verified_at IS NULL`,
-      qualified: sql`p.qualified_at IS NOT NULL`,
-      not_qualified: sql`p.verified_at IS NOT NULL AND p.qualified_at IS NULL`,
-    }[body.segment];
-    const queued = await rows(sql<{ id: number }>`
-      INSERT INTO outbox (chat_id, priority, payload)
-      SELECT p.user_id, ${P.BROADCAST}, ${JSON.stringify(payload)}::jsonb
-        FROM participants p JOIN users u ON u.tg_id = p.user_id
-       WHERE p.contest_id = ${id} AND u.blocked_at IS NULL AND ${segment}
-      RETURNING id
+    const payloads = Object.fromEntries(LOCALES.map((l) => [l, payloadFor(l)]));
+    const result = await db.transaction().execute(async (trx) => {
+      const [b] = await rows(
+        sql<{ id: number }>`
+          INSERT INTO broadcasts (contest_id, segment, payload, created_by)
+          VALUES (${id}, ${body.segment}, ${JSON.stringify(payloads)}::jsonb, ${req.adminId})
+          RETURNING id
+        `,
+        trx,
+      );
+      const queued = await rows(
+        sql<{ id: number }>`
+          INSERT INTO outbox (chat_id, priority, payload, broadcast_id)
+          SELECT p.user_id, ${P.BROADCAST},
+                 (${JSON.stringify(payloads)}::jsonb) -> (${userLocaleSql}),
+                 ${b!.id}
+            FROM participants p JOIN users u ON u.tg_id = p.user_id
+           WHERE p.contest_id = ${id} AND u.blocked_at IS NULL AND ${SEGMENTS[body.segment]}
+          RETURNING id
+        `,
+        trx,
+      );
+      await sql`UPDATE broadcasts SET total = ${queued.length} WHERE id = ${b!.id}`.execute(trx);
+      return { id: b!.id, queued: queued.length };
+    });
+    await audit(req.adminId, "contest.broadcast", {
+      contest_id: id,
+      segment: body.segment,
+      broadcast_id: result.id,
+      queued: result.queued,
+    });
+    return { ...result, test: false };
+  });
+
+  api.get("/contests/:id/broadcasts", async (req) => {
+    const { id } = idParam.parse(req.params);
+    return rows(sql`
+      SELECT b.id, b.segment, b.total, b.created_at, b.cancelled_at, b.created_by,
+             b.payload -> ${d.cfg.DEFAULT_LOCALE} ->> 'text' AS preview,
+             count(o.id) FILTER (WHERE o.status = 'sent') AS sent,
+             count(o.id) FILTER (WHERE o.status = 'failed') AS failed,
+             count(o.id) FILTER (WHERE o.status = 'pending') AS pending,
+             count(o.id) FILTER (WHERE o.status = 'cancelled') AS cancelled
+        FROM broadcasts b LEFT JOIN outbox o ON o.broadcast_id = b.id
+       WHERE b.contest_id = ${id}
+       GROUP BY b.id ORDER BY b.id DESC LIMIT 50
     `);
-    await audit(req.adminId, "contest.broadcast", { id, segment: body.segment, queued: queued.length });
-    return { queued: queued.length, test: false };
+  });
+
+  api.post("/broadcasts/:id/cancel", async (req) => {
+    const { id } = idParam.parse(req.params);
+    const stopped = await rows(sql<{ id: number }>`
+      UPDATE outbox SET status = 'cancelled' WHERE broadcast_id = ${id} AND status = 'pending' RETURNING id
+    `);
+    await sql`UPDATE broadcasts SET cancelled_at = COALESCE(cancelled_at, now()) WHERE id = ${id}`.execute(db);
+    await audit(req.adminId, "broadcast.cancel", { id, stopped: stopped.length });
+    return { stopped: stopped.length };
   });
 
   api.get("/contests/:id/export.csv", async (req, reply) => {

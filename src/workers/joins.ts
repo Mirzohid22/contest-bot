@@ -2,6 +2,7 @@ import { GrammyError } from "grammy";
 import { sql } from "kysely";
 import type { Contest, JoinRequestRow, Participant } from "../db/types.js";
 import type { Deps } from "../deps.js";
+import { localeOf } from "../contest/service.js";
 import { render, textsOf } from "../flow/texts.js";
 import { P } from "../tg/gateway.js";
 import { every } from "../util.js";
@@ -66,7 +67,7 @@ export class JoinWorker {
       }
       await tg.declineJoin(r.chat_id, r.user_id);
       await this.finish(r.id, "declined", verdict.reason);
-      const t = textsOf(contest);
+      const t = textsOf(contest, await localeOf(db, r.user_id, this.d.cfg.DEFAULT_LOCALE));
       const text =
         verdict.reason === "left_sponsor"
           ? t.declined_sponsors

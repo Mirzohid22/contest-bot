@@ -176,7 +176,15 @@ An outbox worker reads pending rows (`FOR UPDATE SKIP LOCKED`), pushes them thro
 
 1. Upsert `users`. Load the active contest (cached in memory, refreshed every few seconds and on admin change). No active contest → one "no contest running" message.
 2. `INSERT ... ON CONFLICT DO NOTHING` into `participants`. `referred_by` is set **only on this first insert**, from the code in the payload, if the code exists in this contest and is not the user's own. It never changes afterwards.
-3. Already verified → send the personal link and progress. Otherwise send **one** gate message: sponsor list as URL buttons plus a "✅ I subscribed" button. Later steps edit this message; its id comes with each button press, so it is not stored.
+3. Already verified → send the personal link and progress. Otherwise send **one** gate message: a numbered sponsor list, one URL button per channel, a "✅ I subscribed" button and a language button. Later steps edit this message; its id comes with each button press, so it is not stored. With a contest banner, the message is a picture with a caption (up to 1024 characters), and edits change the caption.
+
+### 5.1a Languages
+
+Every message exists in Uzbek, Russian and English (`src/flow/texts.ts`), and each contest can override any of them per language. A user's language is the one they picked with the 🌐 button or `/lang` (`users.locale`), else their Telegram language if it is Uzbek or Russian, else `DEFAULT_LOCALE` (Uzbek). Messages written ahead of time (the outbox "you qualified" message, broadcasts) are rendered in the recipient's language when they are queued.
+
+### 5.1b Progress card screens
+
+The card shown after verification has a progress bar (`▰▰▰▱▱ 3/5`), share and copy-link buttons, and two more screens that replace it in the same message: the leaderboard (top 10 by first name only, plus the user's own place; cached for 15 s per contest) and the user's own invitees, marked counted or not subscribed yet.
 
 ### 5.2 "I subscribed" click
 
@@ -184,7 +192,7 @@ An outbox worker reads pending rows (`FOR UPDATE SKIP LOCKED`), pushes them thro
 2. Ask the membership service for all sponsor channels of the contest (section 6).
    - All known from the local table → answer immediately.
    - Some unknown → answer the callback with "Checking…", resolve in the background, then continue.
-3. Not subscribed to all → `answerCallbackQuery` alert naming the missing channels. **No new message.**
+3. Not subscribed to all → `answerCallbackQuery` alert naming the missing channels. **No new message.** When the answer needed a Telegram lookup, the gate message is also edited to mark each channel ✅ or ❌ and keep only the missing channels' buttons; when everything was known locally it stays a popup only, so a stream of early clicks during a spike does not use the send limit.
 4. Subscribed to all → run the credit transaction (5.3), then **edit** the gate message into the personal link + progress view.
 
 ### 5.3 Referral credit — one transaction, exactly once
@@ -247,12 +255,14 @@ The table is **global, not per contest**: membership is a fact about the world, 
 
 ## 7. Data model
 
-The schema is [`migrations/001_init.sql`](migrations/001_init.sql); that file is the source of truth.
+The schema is [`migrations/001_init.sql`](migrations/001_init.sql) plus [`002_ui.sql`](migrations/002_ui.sql); those files are the source of truth.
 
 | Table | Scope | Holds |
 |---|---|---|
-| `users` | global | One row per Telegram user: name, language, whether they blocked the bot. |
-| `contests` | — | Title, status (`draft` / `active` / `finished`), required invites, prize chat and its join-request link, message overrides. A partial unique index allows one active contest. |
+| `users` | global | One row per Telegram user: name, Telegram language, the language they picked in the bot, whether they blocked the bot. |
+| `contests` | — | Title, status (`draft` / `active` / `finished`), required invites, prize chat and its join-request link, message overrides per language, banner `file_id`. A partial unique index allows one active contest. |
+| `contest_banners` | per contest | The uploaded banner picture, only so the panel can show it. Kept out of `contests`, which the bot reads every few seconds. |
+| `broadcasts` | per contest | One row per admin broadcast; its messages are `outbox` rows with `broadcast_id`, which gives delivery progress and lets one be stopped. |
 | `sponsor_channels` | per contest | Channel id, title, join link, order, health (`ok` / `bot_not_admin`). |
 | `participants` | per contest | **All contest state**: referral code, referrer (set once), `verified_at`, `invite_count`, `qualified_at`, `prize_joined_at`, `disqualified_at`. Unique on `(contest_id, user_id)`. |
 | `channel_members` | global | Who is in which channel, from `chat_member` updates (`push`) or `getChatMember` (`api`). |
@@ -294,11 +304,14 @@ Only hashes of login tokens and session ids are stored.
 Same process (Fastify), served under `/admin` on the server's localhost. Reach it through an SSH tunnel, or through the server's own web server with HTTPS.
 
 - **Auth:** admin Telegram IDs in config. `/admin` in the bot sends a one-time login link (random token, stored hashed, 5-minute life, single use) that sets an `HttpOnly; Secure; SameSite=Strict` session cookie. No passwords.
-- **Contests:** create draft, edit texts and required invites, set prize chat (bot verifies it is admin with invite rights), activate, finish.
-- **Sponsors:** add by @username or forwarded post; bot verifies admin status; reorder; health indicator.
-- **Participants:** server-side paginated table with search and filters (verified, qualified, joined prize, disqualified); participant detail with their invitees; disqualify; recount.
-- **Dashboard:** totals per state, joins over time, and live health: send-queue depth and age, per-lane rate, 429 count, poller lag.
-- **Actions:** CSV export, broadcast to a segment (through the outbox at lowest priority; 10K recipients takes about 6 minutes), final audit.
+React app with a sidebar, light and dark themes, and a layout that works on a phone. No UI or chart libraries: charts are plain SVG.
+
+- **Overview:** live numbers with the last hour's change, an hourly activity chart (24 h / 48 h / 7 d), the funnel (started → subscribed → qualified → in prize chat), which sponsor channel stops the most people, the language split, and bot health.
+- **Contest setup wizard:** details → sponsor channels → prize chat → messages and banner → launch. A channel is checked live before it is added (title, members, whether the bot is an admin, whether it can invite). Sponsors can be reordered and re-checked. Messages are edited per screen and per language next to a Telegram-style preview. The launch step is a checklist; a live contest gets finish, recount, audit and export there.
+- **Participants:** paginated search with filters; a side panel with dates, referrer, an expandable invite tree, and disqualify.
+- **Leaderboard:** podium and ranked list, with invitees still pending subscription.
+- **Broadcasts:** text per language (empty languages fall back), link buttons, audience segments with a live recipient count per language, a test send to yourself, then delivery progress per broadcast and a stop button. Broadcasts go through the outbox at the lowest priority; 10K recipients take about 6 minutes.
+- **System:** lane rates, queue depth and age, 429s, poller lag, memory.
 - Every write goes to `audit_log`.
 
 ---
@@ -380,6 +393,7 @@ Still to do against real Telegram: a smoke test with a test bot, two test channe
 | 3 | Referrals | Ref codes, attribution, credit transaction, progress view, qualification, outbox | Done, tested |
 | 4 | Prize access | Join-request link, approve/decline worker | Done, tested against the fake server |
 | 5 | Admin | Auth, contests, sponsors, participants, dashboard, export, broadcast, audit | Done; API tested, UI checked by hand |
+| 5b | UI round 2 | Languages, progress card, leaderboard and friends screens, banner; panel redesign, setup wizard, charts, broadcast composer | Done; tested against the fake server and checked in the browser, not yet on real Telegram |
 | 6 | Hardening | Load test on the VPS, real-Telegram smoke test, backups, alerts | Load test and alerts exist; VPS run, smoke test, and backup schedule are open |
 
 ### Launch checklist

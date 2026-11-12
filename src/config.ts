@@ -23,6 +23,8 @@ const schema = z.object({
   /** Override the Bot API base URL. Used by tests and the load test. */
   TG_API_ROOT: z.string().optional(),
   LOG_LEVEL: z.string().default("info"),
+  /** Language for users whose Telegram language is neither Uzbek nor Russian, until they pick one. */
+  DEFAULT_LOCALE: z.enum(["uz", "ru", "en"]).default("uz"),
   DB_POOL: num(16),
 
   // Lane rates, in calls per second. Only the send rate is documented by Telegram;
