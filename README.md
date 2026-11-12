@@ -52,6 +52,33 @@ To build on the server instead of pulling (needs about 1.5 GB of free memory):
 docker compose -f compose.yml -f compose.build.yml up -d --build
 ```
 
+### Automatic deploys
+
+Every push to `main` runs three jobs: **test**, **image** (build and push to GHCR), and **deploy**. The deploy job connects to the server with an SSH key that can run only [deploy/deploy.sh](deploy/deploy.sh). That script:
+
+1. pulls the image for the pushed commit,
+2. backs up the database to `backups/` (the last 20 are kept),
+3. restarts the app on the new image,
+4. waits for `/healthz`, and if it does not answer, restarts the previous version and fails the job.
+
+One-time setup, from this repo on your computer, after copying the script to the server:
+
+```bash
+scp deploy/deploy.sh lab:contest-bot/ && ssh lab 'chmod 755 ~/contest-bot/deploy.sh'
+```
+
+```bash
+deploy/setup-deploy-key.sh lab
+```
+
+The second command creates a key for GitHub Actions, adds it to the server's `authorized_keys` restricted to `deploy.sh` (no shell, no forwarding), stores it and the server address as `DEPLOY_*` repository secrets, and deletes the local copy. Until the secrets exist, the deploy job is skipped with a warning.
+
+Deploy by hand on the server, or redeploy an older commit:
+
+```bash
+cd ~/contest-bot && ./deploy.sh deploy <full commit sha>
+```
+
 ### Opening the admin panel
 
 Send `/admin` to the bot. It replies with a sign-in link that works once, for five minutes.
@@ -65,6 +92,8 @@ ssh -L 3200:127.0.0.1:3200 user@your-server
 For a public address, put the server's web server in front of port 3200 and set `PUBLIC_URL` to that address. [deploy/nginx-site.conf.example](deploy/nginx-site.conf.example) has an nginx site with the commands.
 
 ### Updating
+
+Push to `main`; the deploy job does the rest. Without automatic deploys, on the server:
 
 ```bash
 docker compose pull && docker compose up -d
