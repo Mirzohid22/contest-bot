@@ -180,6 +180,15 @@ function Details({ contest, readOnly, onSaved }: { contest: Contest; readOnly: b
 
 // ---- 2. sponsors ----
 
+interface KnownChat {
+  chat_id: number;
+  title: string;
+  type: string;
+  username: string | null;
+  status: string;
+  can_invite: boolean;
+}
+
 function ChatChecker({
   purpose,
   onUse,
@@ -197,14 +206,16 @@ function ChatChecker({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"check" | "use" | null>(null);
 
-  const inspect = async (e?: React.FormEvent) => {
+  const known = useLoad(() => api<KnownChat[]>("/chats/known"), []);
+
+  const inspect = async (e?: React.FormEvent, value = chat) => {
     e?.preventDefault();
-    if (!chat.trim()) return;
+    if (!value.trim()) return;
     setBusy("check");
     setError(null);
     setCheck(null);
     try {
-      setCheck(await api<ChatCheck>("/chats/inspect", { body: { chat: chat.trim(), purpose } }));
+      setCheck(await api<ChatCheck>("/chats/inspect", { body: { chat: value.trim(), purpose } }));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -237,7 +248,7 @@ function ChatChecker({
             setCheck(null);
             setError(null);
           }}
-          placeholder="@channel, https://t.me/channel or -100…"
+          placeholder="@channel, https://t.me/channel or -100… (or pick below)"
           disabled={disabled}
         />
         <Button type="submit" icon="search" busy={busy === "check"} disabled={disabled || !chat.trim()}>
@@ -245,6 +256,52 @@ function ChatChecker({
         </Button>
       </form>
       {error && <ErrorNote>{error}</ErrorNote>}
+      {!check && !disabled && (
+        <div className="known-chats">
+          <div className="row between">
+            <span className="field-label">Chats the bot is in</span>
+            <button className="link-btn small" onClick={() => void known.reload()}>
+              Refresh
+            </button>
+          </div>
+          {known.data && known.data.length > 0 ? (
+            <div className="known-list">
+              {known.data.map((k) => (
+                <button
+                  key={k.chat_id}
+                  type="button"
+                  className="known-chat"
+                  onClick={() => {
+                    setChat(String(k.chat_id));
+                    void inspect(undefined, String(k.chat_id));
+                  }}
+                >
+                  <span className="check-avatar small">{k.title[0]?.toUpperCase()}</span>
+                  <span className="grow">
+                    <span className="known-title">{k.title}</span>
+                    <span className="muted small">
+                      {k.type}
+                      {k.username ? ` · @${k.username}` : " · private"}
+                    </span>
+                  </span>
+                  {k.status === "administrator" || k.status === "creator" ? (
+                    <Badge tone={purpose === "prize" && !k.can_invite ? "amber" : "green"}>
+                      {purpose === "prize" && !k.can_invite ? "admin, no invite right" : "admin"}
+                    </Badge>
+                  ) : (
+                    <Badge tone="red">not admin</Badge>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="muted small">
+              None yet. Make the bot an admin of the {purpose === "prize" ? "group or channel" : "channel"} and it appears here.
+              Already an admin? In a group, send <code>/connect</code> there; in a channel, remove the bot and add it again.
+            </p>
+          )}
+        </div>
+      )}
       {check && (
         <div className={`check-card ${check.ok ? "ok" : "bad"}`}>
           <div className="check-avatar">{check.title[0]?.toUpperCase()}</div>

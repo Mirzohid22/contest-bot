@@ -151,6 +151,26 @@ describe("admin panel data", () => {
     expect(patched.json.contest.texts).toEqual({ ru: { btn_check: "Готово" }, uz: {} });
   });
 
+  it("lists chats the bot was added to, and explains private invite links", async () => {
+    h.fake.push(h.fake.botAdminChange(-100777, true));
+    const known = await waitFor(async () => {
+      const r = (await call("GET", "/chats/known")).json as any[];
+      return r.find((c) => c.chat_id === -100777);
+    }, "known chat");
+    expect(known).toMatchObject({ status: "administrator", can_invite: true });
+
+    // A group the bot joined earlier: an admin sends /connect there.
+    const cmd = h.fake.command(ADMIN_ID, "connect") as any;
+    cmd.message.chat = { id: -100888, type: "supergroup", title: "Prize group" };
+    h.fake.push(cmd);
+    await waitFor(async () => ((await call("GET", "/chats/known")).json as any[]).some((c) => c.chat_id === -100888), "connected group");
+    await waitFor(() => h.fake.sent(ADMIN_ID).some((c) => c.payload.text.includes("Prize group")), "connect reply");
+
+    const bad = await call("POST", "/chats/inspect", { chat: "https://t.me/+9aKz3cqJOig4ODgy", purpose: "prize" });
+    expect(bad.status).toBe(400);
+    expect(bad.json.error).toContain("private invite link");
+  });
+
   it("checks a chat before it is added", async () => {
     const r = (await call("POST", "/chats/inspect", { chat: "@some_channel", purpose: "sponsor" })).json;
     expect(r).toMatchObject({ title: "some_channel", ok: true, members: 1234, bot_status: "administrator" });

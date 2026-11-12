@@ -245,6 +245,7 @@ export function registerHandlers(bot: Bot, d: Deps): void {
       return;
     }
     const isAdmin = m.status === "administrator" || m.status === "creator";
+    await rememberChat(chat, m);
     const changed = await sql<{ title: string }>`
       UPDATE sponsor_channels s SET health = ${isAdmin ? "ok" : "bot_not_admin"}
         FROM contests c
@@ -260,6 +261,39 @@ export function registerHandlers(bot: Bot, d: Deps): void {
       isAdmin
         ? `✅ The bot is an admin in sponsor channel <b>${title}</b> again. Subscription checks for it are back on.`
         : `⚠️ The bot is no longer an admin in sponsor channel <b>${title}</b>. Subscription checks for it are skipped until this is fixed.`,
+    );
+  });
+
+  /** Records a group or channel the bot is in, so the admin panel can offer it in a list. */
+  async function rememberChat(
+    chat: { id: number; type: string; title?: string; username?: string },
+    m: { status: string } & Partial<{ can_invite_users: boolean }>,
+  ): Promise<void> {
+    const canInvite = m.status === "creator" || m.can_invite_users === true;
+    await sql`
+      INSERT INTO bot_chats (chat_id, title, type, username, status, can_invite)
+      VALUES (${chat.id}, ${chat.title ?? String(chat.id)}, ${chat.type}, ${chat.username ?? null}, ${m.status}, ${canInvite})
+      ON CONFLICT (chat_id) DO UPDATE
+        SET title = EXCLUDED.title, type = EXCLUDED.type, username = EXCLUDED.username,
+            status = EXCLUDED.status, can_invite = EXCLUDED.can_invite, updated_at = now()
+    `.execute(db);
+  }
+
+  // For a group the bot joined before it started recording chats: an admin sends
+  // /connect in the group, and the bot looks up its own rights there.
+  bot.chatType(["group", "supergroup"]).command("connect", async (ctx) => {
+    if (!cfg.ADMIN_IDS.includes(ctx.from?.id ?? 0)) return;
+    const m = await tg.getChatMember(ctx.chat.id, d.me.id);
+    await rememberChat(ctx.chat, m as { status: string; can_invite_users?: boolean });
+    const ok = m.status === "administrator" || m.status === "creator";
+    tg.fire(
+      tg.send(
+        ctx.from!.id,
+        ok
+          ? `✅ <b>${escapeHtml(ctx.chat.title)}</b> now appears in the admin panel's chat list.`
+          : `⚠️ The bot is not an administrator in <b>${escapeHtml(ctx.chat.title)}</b>. Make it an admin, then send /connect there again.`,
+        { priority: P.IMPORTANT },
+      ),
     );
   });
 

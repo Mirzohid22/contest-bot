@@ -43,6 +43,7 @@ await waitFor(async () => (await h.participant(100))?.invite_count === 7, "invit
 await waitFor(async () => (await h.participant(200))?.qualified_at, "second referrer qualified");
 h.fake.push(h.fake.joinRequest(PRIZE_CHAT, 100));
 h.fake.push(h.fake.memberChange(SPONSOR_A, 2001, false)); // an invitee who left a sponsor
+h.fake.push(h.fake.botAdminChange(-1003000000001, true)); // a private group the bot was made admin of
 await waitFor(async () => (await h.participant(100))?.prize_joined_at, "prize chat joined");
 
 // A few hundred more people spread over the last two days, so the charts, funnel and

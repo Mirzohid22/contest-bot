@@ -18,6 +18,12 @@ const PAGE_SIZE = 50;
 function parseChatRef(input: string): number | string {
   const s = input.trim();
   if (/^-?\d+$/.test(s)) return Number(s);
+  if (/t\.me\/(\+|joinchat\/)/i.test(s)) {
+    throw new HttpProblem(
+      400,
+      "Telegram does not let bots look up a chat by its private invite link. Pick the chat from “Chats the bot is in” below, or enter its numeric id (-100…).",
+    );
+  }
   const m = s.match(/^(?:https?:\/\/)?t\.me\/([A-Za-z0-9_]{4,})\/?$/) ?? s.match(/^@?([A-Za-z0-9_]{4,})$/);
   if (!m) throw new HttpProblem(400, "Enter a channel @username, a t.me link, or a numeric chat id");
   return `@${m[1]}`;
@@ -482,6 +488,15 @@ export function registerRoutes(api: FastifyInstance, d: Deps, extra: { poller: P
   });
 
   // ---- chat checks (used by the setup wizard before anything is saved) ----
+
+  /** Groups and channels the bot was added to, newest first. */
+  api.get("/chats/known", async () =>
+    rows(sql`
+      SELECT chat_id, title, type, username, status, can_invite, updated_at
+        FROM bot_chats WHERE status IN ('administrator', 'creator', 'member')
+       ORDER BY updated_at DESC LIMIT 100
+    `),
+  );
 
   api.post("/chats/inspect", async (req) => {
     const { chat, purpose } = z

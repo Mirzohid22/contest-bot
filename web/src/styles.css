@@ -1599,6 +1599,46 @@ button {
   background: linear-gradient(135deg, #38bdf8, var(--accent));
   flex: none;
 }
+.check-avatar.small {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+  border-radius: 9px;
+}
+.known-chats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.known-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow: auto;
+}
+.known-chat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+}
+.known-chat:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.known-chat .grow {
+  display: flex;
+  flex-direction: column;
+}
+.known-title {
+  font-weight: 600;
+}
 .check-avatar.big {
   width: 48px;
   height: 48px;
