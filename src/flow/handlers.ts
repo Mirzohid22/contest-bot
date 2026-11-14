@@ -242,6 +242,35 @@ export function registerHandlers(bot: Bot, d: Deps): void {
   // Any other button (for example from a message of an old contest): just stop the spinner.
   bot.on("callback_query", (ctx) => tg.answer(ctx.callbackQuery.id));
 
+  dm.command("help", async (ctx) => {
+    if (cooldown.active(`help:${ctx.from.id}`)) return;
+    cooldown.set(`help:${ctx.from.id}`, cfg.START_COOLDOWN_MS);
+    const u = await upsertUser(db, ctx.from);
+    const a = await cache.active();
+    let text = textsOf(a?.contest ?? null, pickLocale(u.locale, u.lang, cfg.DEFAULT_LOCALE)).help;
+    if (cfg.ADMIN_IDS.includes(ctx.from.id)) {
+      text +=
+        "\n\n<b>Admin</b>\n/admin — one-time sign-in link to the panel\n/signout_all — end every panel session\n/connect — send in a group to list it in the panel";
+    }
+    tg.fire(tg.send(ctx.from.id, text, { priority: P.START }));
+  });
+
+  // Anything else in a private chat: an unknown command, text, a sticker, a photo.
+  // One short pointer per user per minute at most, and dropped under load: it must
+  // never compete with replies people are waiting for.
+  dm.on("message", async (ctx) => {
+    const id = ctx.from.id;
+    if (cooldown.active(`unknown:${id}`)) return;
+    cooldown.set(`unknown:${id}`, 60_000);
+    const a = await cache.active();
+    tg.fire(
+      tg.send(id, textsOf(a?.contest ?? null, quickLocale(ctx.from.language_code)).unknown, {
+        priority: P.NOTICE,
+        maxAgeMs: cfg.NOTICE_MAX_AGE_MS,
+      }),
+    );
+  });
+
   bot.on("chat_join_request", async (ctx) => {
     const r = ctx.chatJoinRequest;
     // The worker decides; here we only record the request so it survives a restart.

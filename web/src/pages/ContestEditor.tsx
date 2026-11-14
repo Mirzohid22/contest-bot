@@ -511,7 +511,7 @@ const SCREENS: { id: string; label: string; keys: string[] }[] = [
   {
     id: "replies",
     label: "Other replies",
-    keys: ["notice", "declined", "declined_sponsors", "not_subscribed", "checking", "wait", "press_start", "no_contest", "lang_pick"],
+    keys: ["notice", "declined", "declined_sponsors", "not_subscribed", "checking", "wait", "press_start", "no_contest", "lang_pick", "help", "unknown"],
   },
 ];
 

@@ -44,9 +44,9 @@ export async function createApp(cfg: Config, logger?: Logger) {
   // The command menu next to the message field, in each language. Not essential: a
   // failure is logged and startup goes on.
   const menus = [
-    { language_code: undefined as "ru" | "en" | undefined, start: "Boshlash", lang: "Tilni oʻzgartirish" },
-    { language_code: "ru" as const, start: "Начать", lang: "Сменить язык" },
-    { language_code: "en" as const, start: "Start", lang: "Change language" },
+    { language_code: undefined as "ru" | "en" | undefined, start: "Boshlash", lang: "Tilni oʻzgartirish", help: "Yordam" },
+    { language_code: "ru" as const, start: "Начать", lang: "Сменить язык", help: "Помощь" },
+    { language_code: "en" as const, start: "Start", lang: "Change language", help: "Help" },
   ];
   for (const m of menus) {
     tg.fire(
@@ -55,6 +55,7 @@ export async function createApp(cfg: Config, logger?: Logger) {
           [
             { command: "start", description: m.start },
             { command: "lang", description: m.lang },
+            { command: "help", description: m.help },
           ],
           m.language_code ? { language_code: m.language_code } : {},
         ),

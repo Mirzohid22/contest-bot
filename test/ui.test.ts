@@ -73,6 +73,21 @@ describe("bot screens", () => {
     expect(u.rows[0]!.locale).toBe("en");
   });
 
+  it("answers /help and anything it does not understand", async () => {
+    h.fake.push(h.fake.command(800, "help"));
+    await waitFor(() => h.fake.sent(800).some((c) => c.payload.text.includes("Qanday ishtirok")), "help");
+    h.fake.push(h.fake.command(800, "whatever"));
+    await waitFor(() => h.fake.sent(800).some((c) => c.payload.text.includes("tushunmadim")), "unknown");
+    // A second stray message within a minute gets no further reply.
+    h.fake.push(h.fake.command(800, "again"));
+    await waitFor(() => h.fake.backlog === 0, "handled");
+    await new Promise((r) => setTimeout(r, 100));
+    expect(h.fake.sent(800).filter((c) => c.payload.text.includes("tushunmadim"))).toHaveLength(1);
+    // Admins see their extra commands.
+    h.fake.push(h.fake.command(ADMIN_ID, "help"));
+    await waitFor(() => h.fake.sent(ADMIN_ID).some((c) => c.payload.text.includes("/signout_all")), "admin help");
+  });
+
   it("shows the leaderboard and the friends list", async () => {
     h.join(600);
     const me = await waitFor(async () => {

@@ -57,6 +57,9 @@ const uz = {
   friends_legend: "✅ hisoblandi · ⏳ kanallarga hali obuna boʻlmagan",
   friends_more: "…va yana {n} ta",
   lang_pick: "🌐 Tilni tanlang:",
+  help:
+    "ℹ️ <b>Qanday ishtirok etiladi</b>\n\n1. /start ni bosing va homiy kanallarga obuna boʻling.\n2. «Obuna boʻldim» tugmasini bosing — shaxsiy havolangizni olasiz.\n3. Havolani doʻstlaringizga yuboring. Doʻst havola orqali botga kirib, kanallarga obuna boʻlgach hisoblanadi.\n4. Kerakli sondagi doʻstni taklif qilsangiz, yopiq kanalga kirish tugmasi keladi.\n\n<b>Buyruqlar</b>\n/start — tanlov va havolangiz\n/lang — tilni oʻzgartirish\n/help — shu yordam",
+  unknown: "Bu buyruqni tushunmadim. Tanlovni ochish uchun /start, yordam uchun /help ni bosing.",
   btn_check: "✅ Obuna boʻldim",
   btn_progress: "🔄 Yangilash",
   btn_share: "📨 Ulashish",
@@ -98,6 +101,9 @@ const ru: Texts = {
   friends_legend: "✅ засчитан · ⏳ ещё не подписался на каналы",
   friends_more: "…и ещё {n}",
   lang_pick: "🌐 Выберите язык:",
+  help:
+    "ℹ️ <b>Как участвовать</b>\n\n1. Нажмите /start и подпишитесь на каналы спонсоров.\n2. Нажмите «Я подписался» — вы получите личную ссылку.\n3. Отправьте ссылку друзьям. Друг засчитывается, когда откроет бота по ссылке и подпишется на каналы.\n4. Когда пригласите нужное число друзей, придёт кнопка входа в закрытый канал.\n\n<b>Команды</b>\n/start — конкурс и ваша ссылка\n/lang — сменить язык\n/help — эта справка",
+  unknown: "Не понял эту команду. Нажмите /start, чтобы открыть конкурс, или /help для справки.",
   btn_check: "✅ Я подписался",
   btn_progress: "🔄 Обновить",
   btn_share: "📨 Поделиться",
@@ -137,6 +143,9 @@ const en: Texts = {
   friends_legend: "✅ counted · ⏳ not subscribed to the channels yet",
   friends_more: "…and {n} more",
   lang_pick: "🌐 Choose your language:",
+  help:
+    "ℹ️ <b>How to take part</b>\n\n1. Press /start and subscribe to the sponsor channels.\n2. Press «I subscribed» to get your personal link.\n3. Send the link to friends. A friend counts once they open the bot with it and subscribe to the channels.\n4. When you have invited enough friends, you get a button to join the private channel.\n\n<b>Commands</b>\n/start — the contest and your link\n/lang — change language\n/help — this help",
+  unknown: "I didn't understand that. Press /start to open the contest, or /help for help.",
   btn_check: "✅ I subscribed",
   btn_progress: "🔄 Refresh",
   btn_share: "📨 Share",
