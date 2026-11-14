@@ -121,7 +121,13 @@ Run this nightly (cron) and before activating or finishing a contest, and copy t
 
 During the contest, **Overview** shows live numbers, the funnel and the queues; **Leaderboard** and **Participants** show who brought whom; **Broadcasts** messages a segment in each person's language.
 
-**Before awarding prizes:** disqualify fake accounts under Participants, open the contest's **Launch** step, press **Recount invites**, and look at **Final audit**. Then **Finish**, or launch the next contest.
+Qualified participants get a personal prize link that only they can use, once.
+
+**Awarding prizes:** disqualify fake accounts under Participants, open the contest's **Launch** step, press **Recount invites**, look at **Final audit**, then **Finish**. On the **Winners** page, draw winners: every counted invite is one ticket, so more invites mean a higher chance. The draw is saved with its random seed, and **Notify winners** messages them in their language.
+
+### What users see
+
+After subscribing, users get a card with their progress, personal link and an **Invite friends** button. The rest is in the bot's menu: `/link` (the card), `/top` (top 10 and their place), `/friends` (who they invited), `/lang`, `/help`. Each counted friend triggers "Your friend … joined all sponsor channels and was counted".
 
 ### Languages
 

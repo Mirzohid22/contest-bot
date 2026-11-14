@@ -44,19 +44,24 @@ export async function createApp(cfg: Config, logger?: Logger) {
   // The command menu next to the message field, in each language. Not essential: a
   // failure is logged and startup goes on.
   const menus = [
-    { language_code: undefined as "ru" | "en" | undefined, start: "Boshlash", lang: "Tilni oʻzgartirish", help: "Yordam" },
-    { language_code: "ru" as const, start: "Начать", lang: "Сменить язык", help: "Помощь" },
-    { language_code: "en" as const, start: "Start", lang: "Change language", help: "Help" },
+    {
+      language_code: undefined as "ru" | "en" | undefined,
+      items: { start: "Boshlash", link: "Havolam va natijam", top: "Reyting va oʻrnim", friends: "Doʻstlarim", lang: "Tilni oʻzgartirish", help: "Yordam" },
+    },
+    {
+      language_code: "ru" as const,
+      items: { start: "Начать", link: "Моя ссылка и прогресс", top: "Рейтинг и моё место", friends: "Мои друзья", lang: "Сменить язык", help: "Помощь" },
+    },
+    {
+      language_code: "en" as const,
+      items: { start: "Start", link: "My link and progress", top: "Leaderboard and my place", friends: "My friends", lang: "Change language", help: "Help" },
+    },
   ];
   for (const m of menus) {
     tg.fire(
       tg.lanes.manage.schedule(() =>
         raw.setMyCommands(
-          [
-            { command: "start", description: m.start },
-            { command: "lang", description: m.lang },
-            { command: "help", description: m.help },
-          ],
+          Object.entries(m.items).map(([command, description]) => ({ command, description })),
           m.language_code ? { language_code: m.language_code } : {},
         ),
       ),

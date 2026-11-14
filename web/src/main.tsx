@@ -9,6 +9,7 @@ import { Leaderboard } from "./pages/Leaderboard";
 import { Overview } from "./pages/Overview";
 import { Participants } from "./pages/Participants";
 import { System } from "./pages/System";
+import { Winners } from "./pages/Winners";
 import { Icon, Loading, StatusBadge, UiProvider } from "./ui";
 import "./styles.css";
 
@@ -18,6 +19,7 @@ const NAV = [
   { path: "participants", label: "Participants", icon: "users" },
   { path: "leaderboard", label: "Leaderboard", icon: "medal" },
   { path: "broadcasts", label: "Broadcasts", icon: "send" },
+  { path: "winners", label: "Winners", icon: "sparkles" },
   { path: "system", label: "System", icon: "activity" },
 ];
 
@@ -108,9 +110,10 @@ function App() {
   else if (section === "leaderboard") page = <Leaderboard />;
   else if (section === "broadcasts") page = <Broadcasts />;
   else if (section === "system") page = <System />;
+  else if (section === "winners") page = <Winners />;
   else page = <Overview />;
 
-  const showPicker = ["", "participants", "leaderboard", "broadcasts"].includes(section) && list.length > 0;
+  const showPicker = ["", "participants", "leaderboard", "broadcasts", "winners"].includes(section) && list.length > 0;
 
   return (
     <AppContext.Provider value={state}>

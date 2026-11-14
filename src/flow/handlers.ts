@@ -187,42 +187,49 @@ export function registerHandlers(bot: Bot, d: Deps): void {
       .catch((err) => log.warn({ err, userId }, "membership lookup failed"));
   });
 
-  bot.callbackQuery("progress", async (ctx) => {
-    const cb = ctx.callbackQuery.id;
-    const c = await context(cb, ctx.from.id, "progress", quickLocale(ctx.from.language_code));
-    if (!c) return;
-    tg.answer(cb);
-    show(ctx.from.id, home(c.a, c.p, c.locale), ctx.callbackQuery.message);
+  /**
+   * Shared start of the menu commands: cooldown, user language, active contest and the
+   * participant row. Replies itself (no contest, not started) and returns null when it did.
+   */
+  async function commandContext(from: { id: number; language_code?: string; first_name: string; username?: string }, key: string) {
+    if (cooldown.active(`${key}:${from.id}`)) return null;
+    cooldown.set(`${key}:${from.id}`, cfg.CHECK_COOLDOWN_MS);
+    const u = await upsertUser(db, from);
+    const locale = pickLocale(u.locale, u.lang, cfg.DEFAULT_LOCALE);
+    const a = await cache.active();
+    if (!a) {
+      tg.fire(tg.send(from.id, textsOf(null, locale).no_contest, { priority: P.START }));
+      return null;
+    }
+    const p = await getParticipant(db, a.contest.id, from.id);
+    if (!p) {
+      tg.fire(tg.send(from.id, textsOf(a.contest, locale).press_start, { priority: P.START }));
+      return null;
+    }
+    return { a, p, locale };
+  }
+
+  // Menu commands. They send a new message, so they work at any time, from anywhere in the chat.
+  dm.command(["link", "me", "progress"], async (ctx) => {
+    const c = await commandContext(ctx.from, "link");
+    if (c) show(ctx.from.id, home(c.a, c.p, c.locale));
   });
 
-  bot.callbackQuery("top", async (ctx) => {
-    const cb = ctx.callbackQuery.id;
-    const c = await context(cb, ctx.from.id, "top", quickLocale(ctx.from.language_code));
+  dm.command(["top", "rating", "reyting"], async (ctx) => {
+    const c = await commandContext(ctx.from, "top");
     if (!c) return;
     const { a, p, locale } = c;
     const top = await leaderboard.top(a.contest.id);
     const counted = p.verified_at !== null && p.disqualified_at === null;
     const me = counted ? { rank: await leaderboard.rank(a.contest.id, p.invite_count), count: p.invite_count } : null;
-    tg.answer(cb);
-    show(ctx.from.id, leaderboardView(a, locale, top, me), ctx.callbackQuery.message);
+    show(ctx.from.id, leaderboardView(a, locale, top, me));
   });
 
-  bot.callbackQuery("friends", async (ctx) => {
-    const cb = ctx.callbackQuery.id;
-    const c = await context(cb, ctx.from.id, "friends", quickLocale(ctx.from.language_code));
+  dm.command(["friends", "dostlar"], async (ctx) => {
+    const c = await commandContext(ctx.from, "friends");
     if (!c) return;
     const { rows, total } = await friendsOf(db, c.p.id);
-    tg.answer(cb);
-    show(ctx.from.id, friendsView(c.a, c.locale, rows, total), ctx.callbackQuery.message);
-  });
-
-  bot.callbackQuery("lang", async (ctx) => {
-    const cb = ctx.callbackQuery.id;
-    const a = await cache.active();
-    const p = a ? await getParticipant(db, a.contest.id, ctx.from.id) : null;
-    const locale = p ? localeOfP(p) : quickLocale(ctx.from.language_code);
-    tg.answer(cb);
-    show(ctx.from.id, languageView(a?.contest ?? null, locale), ctx.callbackQuery.message);
+    show(ctx.from.id, friendsView(c.a, c.locale, rows, total));
   });
 
   bot.callbackQuery(/^lang:(\w+)$/, async (ctx) => {
@@ -275,8 +282,8 @@ export function registerHandlers(bot: Bot, d: Deps): void {
     const r = ctx.chatJoinRequest;
     // The worker decides; here we only record the request so it survives a restart.
     await sql`
-      INSERT INTO join_requests (chat_id, user_id, user_chat_id, requested_at)
-      VALUES (${r.chat.id}, ${r.from.id}, ${r.user_chat_id}, to_timestamp(${r.date}))
+      INSERT INTO join_requests (chat_id, user_id, user_chat_id, requested_at, invite_link)
+      VALUES (${r.chat.id}, ${r.from.id}, ${r.user_chat_id}, to_timestamp(${r.date}), ${r.invite_link?.invite_link ?? null})
       ON CONFLICT (chat_id, user_id, requested_at) DO NOTHING
     `.execute(db);
   });
@@ -344,6 +351,63 @@ export function registerHandlers(bot: Bot, d: Deps): void {
     );
   });
 
+  /**
+   * "Your friend Aziz joined all sponsor channels and was counted". The first one goes out
+   * at once; friends counted during the next NOTICE_COALESCE_MS are named together in one
+   * message, so a referrer whose link spreads fast is not flooded (and the 30-per-second
+   * send limit is kept for people waiting on the bot). Notices are dropped, not delayed,
+   * when the send queue is long.
+   */
+  const pendingNotices = new Map<number, { names: string[]; count: number; locale: Locale; a: ActiveContest }>();
+
+  function sendNotice(a: ActiveContest, userId: number, locale: Locale, names: string[], count: number) {
+    const required = a.contest.required_invites;
+    const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` +${names.length - 3}` : "");
+    tg.fire(
+      tg.send(
+        userId,
+        render(textsOf(a.contest, locale).notice, { name: shown, count, required, bar: progressBar(count, required) }),
+        { priority: P.NOTICE, maxAgeMs: cfg.NOTICE_MAX_AGE_MS },
+      ),
+    );
+  }
+
+  function notifyReferrer(
+    a: ActiveContest,
+    ref: { userId: number; inviteCount: number; locale: Locale },
+    friend: { user_id: number },
+  ) {
+    void friendName(friend.user_id).then((name) => {
+      const waiting = pendingNotices.get(ref.userId);
+      if (waiting) {
+        waiting.names.push(name);
+        waiting.count = Math.max(waiting.count, ref.inviteCount);
+        return;
+      }
+      if (!cooldown.active(`notice:${ref.userId}`)) {
+        cooldown.set(`notice:${ref.userId}`, cfg.NOTICE_COALESCE_MS);
+        return sendNotice(a, ref.userId, ref.locale, [name], ref.inviteCount);
+      }
+      // Inside the quiet window: collect, and send one message when it ends.
+      pendingNotices.set(ref.userId, { names: [name], count: ref.inviteCount, locale: ref.locale, a });
+      setTimeout(() => {
+        const batch = pendingNotices.get(ref.userId);
+        pendingNotices.delete(ref.userId);
+        if (!batch) return;
+        cooldown.set(`notice:${ref.userId}`, cfg.NOTICE_COALESCE_MS);
+        sendNotice(batch.a, ref.userId, batch.locale, batch.names, batch.count);
+      }, cfg.NOTICE_COALESCE_MS).unref();
+    });
+  }
+
+  async function friendName(userId: number): Promise<string> {
+    const r = await sql<{ first_name: string | null; username: string | null }>`
+      SELECT first_name, username FROM users WHERE tg_id = ${userId}
+    `.execute(db);
+    const u = r.rows[0];
+    return truncate((u?.first_name ?? "").trim() || (u?.username ? `@${u.username}` : "—"), 24);
+  }
+
   /** The user passed the gate: credit the referrer (once) and show the personal link. */
   async function verified(a: ActiveContest, p: ParticipantWithUser, msg?: MaybeInaccessibleMessage): Promise<void> {
     const result = await credit(db, a.contest, p.id, cfg.DEFAULT_LOCALE);
@@ -352,19 +416,7 @@ export function registerHandlers(bot: Bot, d: Deps): void {
 
     const ref = result.referrer;
     // A referrer who just qualified gets the durable outbox message instead of a notice.
-    if (!ref || ref.qualifiedNow || cooldown.active(`notice:${ref.userId}`)) return;
-    cooldown.set(`notice:${ref.userId}`, cfg.NOTICE_COALESCE_MS);
-    const required = a.contest.required_invites;
-    tg.fire(
-      tg.send(
-        ref.userId,
-        render(textsOf(a.contest, ref.locale).notice, {
-          count: ref.inviteCount,
-          required,
-          bar: progressBar(ref.inviteCount, required),
-        }),
-        { priority: P.NOTICE, maxAgeMs: cfg.NOTICE_MAX_AGE_MS },
-      ),
-    );
+    if (!ref || ref.qualifiedNow) return;
+    notifyReferrer(a, ref, fresh);
   }
 }

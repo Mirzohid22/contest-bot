@@ -33,7 +33,6 @@ describe("contest flow", () => {
       "https://t.me/sponsor_a",
       "https://t.me/sponsor_b",
       "check",
-      "lang",
     ]);
 
     // 2. Clicking without subscribing: Telegram is asked, the answer is "not a member".
@@ -77,28 +76,38 @@ describe("contest flow", () => {
     h.fake.push(h.fake.click(201, "check"));
     await waitFor(async () => (await h.participant(100))!.invite_count === 1, "first invite");
     expect((await h.participant(100))!.qualified_at).toBeNull();
-    await waitFor(() => h.fake.sent(100).some((c) => c.payload.text.includes("1/2")), "progress notice");
+    const notice = await waitFor(() => h.fake.sent(100).find((c) => c.payload.text.includes("1/2")), "progress notice");
+    expect(notice.payload.text).toContain("was counted");
 
     h.join(202, me.ref_code);
     await waitFor(async () => (await h.participant(100))!.qualified_at, "user 100 qualified");
     expect((await h.participant(100))!.invite_count).toBe(2);
 
-    // 7. The durable "you qualified" message carries the prize link.
+    // 7. The durable "you qualified" message carries a link made for this user alone.
     const congrats = await waitFor(
-      () => h.fake.sent(100).find((c) => c.payload.text.includes("Congratulations")),
+      () => h.fake.sent(100).find((c) => c.payload.text.includes("met the requirements")),
       "qualified message",
     );
-    expect(congrats.payload.reply_markup.inline_keyboard[0][0].url).toBe("https://t.me/+prize");
+    const personal: string = congrats.payload.reply_markup.inline_keyboard[0][0].url;
+    expect(personal).toMatch(/^https:\/\/t\.me\/\+fake/);
+    expect((await h.participant(100))!.prize_invite_link).toBe(personal);
 
-    // 8. The same prize link admits the qualified user and nobody else.
-    h.fake.push(h.fake.joinRequest(PRIZE_CHAT, 100));
-    h.fake.push(h.fake.joinRequest(PRIZE_CHAT, 201));
-    h.fake.push(h.fake.joinRequest(PRIZE_CHAT, 999)); // never used the bot
-    await waitFor(() => h.fake.count("approveChatJoinRequest") === 1, "approval");
-    await waitFor(() => h.fake.count("declineChatJoinRequest") === 2, "declines");
+    // 8. Someone else using that link is declined; its owner is approved, once.
+    h.fake.push(h.fake.joinRequest(PRIZE_CHAT, 201, personal));
+    await waitFor(() => h.fake.count("declineChatJoinRequest") === 1, "stranger declined");
+    await waitFor(() => h.fake.sent(201).some((c) => c.payload.text.includes("belongs to another")), "reason");
+    h.fake.push(h.fake.joinRequest(PRIZE_CHAT, 100, personal));
+    await waitFor(() => h.fake.count("approveChatJoinRequest") === 1, "owner approved");
     const approved = h.fake.calls.find((c) => c.method === "approveChatJoinRequest")!;
     expect(approved.payload.user_id).toBe(100);
-    expect((await h.participant(100))!.prize_joined_at).not.toBeNull();
+    await waitFor(() => h.fake.count("revokeChatInviteLink") === 1, "link revoked");
+    const after = (await h.participant(100))!;
+    expect(after.prize_joined_at).not.toBeNull();
+    expect(after.prize_link_used_at).not.toBeNull();
+
+    // The shared contest link still admits nobody who has not qualified.
+    h.fake.push(h.fake.joinRequest(PRIZE_CHAT, 999)); // never used the bot
+    await waitFor(() => h.fake.count("declineChatJoinRequest") === 2, "outsider declined");
     await waitFor(() => h.fake.sent(999).some((c) => c.payload.text.includes("declined")), "decline message");
   });
 

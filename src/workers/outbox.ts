@@ -1,7 +1,8 @@
 import { GrammyError } from "grammy";
 import type { InlineKeyboardMarkup } from "grammy/types";
 import { sql } from "kysely";
-import type { OutboxRow } from "../db/types.js";
+import { ensurePrizeLink } from "../contest/prize.js";
+import type { Contest, OutboxRow, Participant } from "../db/types.js";
 import type { Deps } from "../deps.js";
 import { isBlocked } from "../tg/gateway.js";
 import { every } from "../util.js";
@@ -53,10 +54,9 @@ export class OutboxWorker {
   private async deliver(row: OutboxRow): Promise<void> {
     const { db, tg, log } = this.d;
     try {
-      await tg.send(row.chat_id, row.payload.text, {
-        priority: row.priority,
-        markup: row.payload.markup as InlineKeyboardMarkup | undefined,
-      });
+      let markup = row.payload.markup as InlineKeyboardMarkup | undefined;
+      if (row.payload.prize_for) markup = await this.prizeButton(row.payload.prize_for, row.payload.prize_button);
+      await tg.send(row.chat_id, row.payload.text, { priority: row.priority, markup });
       await sql`UPDATE outbox SET status = 'sent', sent_at = now() WHERE id = ${row.id}`.execute(db);
     } catch (err) {
       // Blocked by the user, or Telegram rejected the message itself: retrying cannot help.
@@ -76,5 +76,16 @@ export class OutboxWorker {
           .catch(() => {});
       }
     }
+  }
+
+  /** The "join the prize chat" button with the participant's own single-use link. */
+  private async prizeButton(participantId: number, label = "🔓"): Promise<InlineKeyboardMarkup | undefined> {
+    const r = await sql<Participant & { c: Contest }>`
+      SELECT p.*, to_jsonb(c) AS c FROM participants p JOIN contests c ON c.id = p.contest_id WHERE p.id = ${participantId}
+    `.execute(this.d.db);
+    const row = r.rows[0];
+    if (!row) return undefined;
+    const link = await ensurePrizeLink(this.d, row.c, row);
+    return link ? { inline_keyboard: [[{ text: label, url: link }]] } : undefined;
   }
 }

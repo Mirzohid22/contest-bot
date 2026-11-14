@@ -1,7 +1,7 @@
 import { sql } from "kysely";
 import type { Db, Executor } from "../db/index.js";
 import type { Contest, Participant, ParticipantWithUser, Sponsor } from "../db/types.js";
-import { type FriendRow, type LeaderRow, type Locale, pickLocale, qualifiedView } from "../flow/texts.js";
+import { type FriendRow, type LeaderRow, type Locale, pickLocale, qualifiedView, textsOf } from "../flow/texts.js";
 import { P } from "../tg/gateway.js";
 import { randomCode } from "../util.js";
 
@@ -204,7 +204,16 @@ export async function qualifyIfReady(
   await enqueue(trx, {
     chatId: row.user_id,
     priority: P.IMPORTANT,
-    payload: qualifiedView(contest, pickLocale(row.locale, row.lang, fallback)),
+    // The personal prize link is made by the outbox worker just before sending: creating it
+    // is a Telegram call, and this runs inside the credit transaction.
+    payload: (() => {
+      const locale = pickLocale(row.locale, row.lang, fallback);
+      return {
+        ...qualifiedView(contest, locale, null),
+        prize_for: participantId,
+        prize_button: textsOf(contest, locale).btn_prize,
+      };
+    })(),
     dedupeKey: `qualified:${participantId}`,
   });
   return true;
@@ -212,7 +221,7 @@ export async function qualifyIfReady(
 
 export async function enqueue(
   db: Executor,
-  m: { chatId: number; priority: number; payload: { text: string; markup?: unknown }; dedupeKey?: string },
+  m: { chatId: number; priority: number; payload: { text: string; markup?: unknown; [k: string]: unknown }; dedupeKey?: string },
 ): Promise<void> {
   await sql`
     INSERT INTO outbox (dedupe_key, chat_id, priority, payload)

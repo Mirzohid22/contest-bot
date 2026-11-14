@@ -34,6 +34,8 @@ export interface Participant {
   qualified_at: Date | null;
   prize_joined_at: Date | null;
   disqualified_at: Date | null;
+  prize_invite_link: string | null;
+  prize_link_used_at: Date | null;
   created_at: Date;
 }
 
@@ -47,7 +49,7 @@ export interface OutboxRow {
   id: number;
   chat_id: number;
   priority: number;
-  payload: { text: string; markup?: unknown };
+  payload: { text: string; markup?: unknown; prize_for?: number; prize_button?: string };
   attempts: number;
 }
 
@@ -56,5 +58,6 @@ export interface JoinRequestRow {
   chat_id: number;
   user_id: number;
   user_chat_id: number;
+  invite_link: string | null;
   attempts: number;
 }

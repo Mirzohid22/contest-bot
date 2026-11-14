@@ -1,12 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { type RawBuilder, sql } from "kysely";
 import { z } from "zod";
-import { qualifyIfReady } from "../contest/service.js";
+import { type Candidate, drawWinners, newSeed } from "../contest/draw.js";
+import { enqueue, qualifyIfReady } from "../contest/service.js";
 import type { Executor } from "../db/index.js";
 import type { Contest, Participant, Sponsor } from "../db/types.js";
 import type { Deps } from "../deps.js";
 import { InputFile } from "grammy";
-import { defaultTexts, LOCALES, type Locale, TEXT_KEYS } from "../flow/texts.js";
+import { defaultTexts, LOCALES, type Locale, pickLocale, render, TEXT_KEYS, textsOf } from "../flow/texts.js";
 import type { Poller } from "../ingest/poller.js";
 import { P } from "../tg/gateway.js";
 import { HttpProblem } from "./server.js";
@@ -218,6 +219,10 @@ export function registerRoutes(api: FastifyInstance, d: Deps, extra: { poller: P
              prize_invite_link = ${link.invite_link}
        WHERE id = ${id} RETURNING *
     `);
+    // Personal links made for the previous chat no longer lead anywhere.
+    await sql`
+      UPDATE participants SET prize_invite_link = NULL, prize_link_used_at = NULL WHERE contest_id = ${id}
+    `.execute(db);
     cache.invalidate();
     await audit(req.adminId, "contest.prize", { id, chat_id: info.id });
     return contest;
@@ -610,6 +615,124 @@ export function registerRoutes(api: FastifyInstance, d: Deps, extra: { poller: P
     `);
     if (!b) throw new HttpProblem(404, "No banner");
     return reply.type(b.content_type).header("cache-control", "private, max-age=60").send(b.image);
+  });
+
+  // ---- winner draws ----
+
+  const ELIGIBLE = {
+    qualified: sql`p.qualified_at IS NOT NULL`,
+    invited: sql`p.invite_count > 0`,
+  } as const;
+  const drawQuery = z.object({
+    eligibility: z.enum(["qualified", "invited"]).default("qualified"),
+    // From a query string "false" must mean false, which z.coerce.boolean() gets wrong.
+    exclude_previous: z.union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")]).default(true),
+  });
+
+  /** Who can win: not disqualified, meets the rule, and (by default) has not won in this contest. */
+  async function candidates(contestId: number, q: z.infer<typeof drawQuery>) {
+    return rows(sql<Candidate & { user_id: number; first_name: string | null; username: string | null }>`
+      SELECT p.id AS participant_id, p.invite_count AS tickets, p.user_id, u.first_name, u.username
+        FROM participants p JOIN users u ON u.tg_id = p.user_id
+       WHERE p.contest_id = ${contestId} AND p.disqualified_at IS NULL AND p.invite_count > 0
+         AND ${ELIGIBLE[q.eligibility]}
+         AND (${!q.exclude_previous} OR NOT EXISTS (
+               SELECT 1 FROM draw_winners w JOIN draws d ON d.id = w.draw_id
+                WHERE d.contest_id = ${contestId} AND w.participant_id = p.id))
+       ORDER BY p.invite_count DESC, p.id
+    `);
+  }
+
+  api.get("/contests/:id/draw/preview", async (req) => {
+    const { id } = idParam.parse(req.params);
+    const q = drawQuery.parse(req.query);
+    await contestById(id);
+    const list = await candidates(id, q);
+    const tickets = list.reduce((a, c) => a + c.tickets, 0);
+    return {
+      candidates: list.length,
+      tickets,
+      top: list.slice(0, 20).map((c) => ({ ...c, share: tickets > 0 ? c.tickets / tickets : 0 })),
+    };
+  });
+
+  api.post("/contests/:id/draws", async (req) => {
+    const { id } = idParam.parse(req.params);
+    const body = z
+      .object({
+        winners: z.number().int().min(1).max(1000),
+        eligibility: z.enum(["qualified", "invited"]).default("qualified"),
+        exclude_previous: z.boolean().default(true),
+      })
+      .parse(req.body);
+    const contest = await contestById(id);
+    if (contest.status !== "finished") {
+      throw new HttpProblem(400, "Finish the contest first, so invite counts no longer change during the draw.");
+    }
+    const list = await candidates(id, body);
+    if (list.length === 0) throw new HttpProblem(400, "Nobody is eligible for this draw.");
+    const seed = newSeed();
+    const tickets = list.reduce((a, c) => a + c.tickets, 0);
+    const won = drawWinners(seed, list, body.winners);
+    const drawId = await db.transaction().execute(async (trx) => {
+      const [d] = await rows(
+        sql<{ id: number }>`
+          INSERT INTO draws (contest_id, eligibility, winners_requested, seed, candidates, tickets, created_by)
+          VALUES (${id}, ${body.eligibility}, ${body.winners}, ${seed}, ${list.length}, ${tickets}, ${req.adminId})
+          RETURNING id
+        `,
+        trx,
+      );
+      for (const [i, w] of won.entries()) {
+        await sql`
+          INSERT INTO draw_winners (draw_id, participant_id, place, tickets)
+          VALUES (${d!.id}, ${w.participant_id}, ${i + 1}, ${w.tickets})
+        `.execute(trx);
+      }
+      return d!.id;
+    });
+    await audit(req.adminId, "contest.draw", { id, draw_id: drawId, ...body, candidates: list.length, tickets });
+    return { id: drawId };
+  });
+
+  api.get("/contests/:id/draws", async (req) => {
+    const { id } = idParam.parse(req.params);
+    const draws = await rows(sql<{ id: number }>`
+      SELECT * FROM draws WHERE contest_id = ${id} ORDER BY id DESC LIMIT 50
+    `);
+    const winners = await rows(sql<{ draw_id: number }>`
+      SELECT w.draw_id, w.place, w.tickets, p.id AS participant_id, p.user_id, p.invite_count,
+             p.prize_joined_at, u.first_name, u.username, u.blocked_at
+        FROM draw_winners w JOIN draws d ON d.id = w.draw_id
+        JOIN participants p ON p.id = w.participant_id JOIN users u ON u.tg_id = p.user_id
+       WHERE d.contest_id = ${id} ORDER BY w.draw_id DESC, w.place
+    `);
+    return draws.map((d) => ({ ...d, winners: winners.filter((w) => w.draw_id === d.id) }));
+  });
+
+  /** Sends each winner the "you won" message in their language, once per draw. */
+  api.post("/draws/:id/notify", async (req) => {
+    const { id } = idParam.parse(req.params);
+    const [dr] = await rows(sql<{ contest_id: number }>`SELECT contest_id FROM draws WHERE id = ${id}`);
+    if (!dr) throw new HttpProblem(404, "Draw not found");
+    const contest = await contestById(dr.contest_id);
+    const list = await rows(sql<{ participant_id: number; user_id: number; place: number; locale: string | null; lang: string | null }>`
+      SELECT w.participant_id, w.place, p.user_id, u.locale, u.lang
+        FROM draw_winners w JOIN participants p ON p.id = w.participant_id JOIN users u ON u.tg_id = p.user_id
+       WHERE w.draw_id = ${id} ORDER BY w.place
+    `);
+    for (const w of list) {
+      const t = textsOf(contest, pickLocale(w.locale, w.lang, d.cfg.DEFAULT_LOCALE));
+      await enqueue(db, {
+        chatId: w.user_id,
+        priority: P.IMPORTANT,
+        payload: { text: render(t.winner, { title: contest.title, place: w.place }) },
+        dedupeKey: `winner:${id}:${w.participant_id}`,
+      });
+    }
+    await sql`UPDATE draws SET notified_at = COALESCE(notified_at, now()) WHERE id = ${id}`.execute(db);
+    await audit(req.adminId, "draw.notify", { id, winners: list.length });
+    return { queued: list.length };
   });
 
   // ---- broadcasts ----

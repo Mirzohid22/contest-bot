@@ -183,6 +183,10 @@ export class Tg {
     );
   }
 
+  revokeInviteLink(chatId: number, link: string): Promise<ChatInviteLink> {
+    return this.lanes.manage.schedule(() => this.raw.revokeChatInviteLink(chatId, link));
+  }
+
   approveJoin(chatId: number, userId: number): Promise<true> {
     return this.lanes.manage.schedule(() => this.raw.approveChatJoinRequest(chatId, userId));
   }

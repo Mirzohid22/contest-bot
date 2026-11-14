@@ -173,13 +173,25 @@ export class FakeTelegram {
     };
   }
 
-  joinRequest(chatId: number, userId: number): UpdateBody {
+  joinRequest(chatId: number, userId: number, inviteLink?: string): UpdateBody {
+    const bot = { id: this.botId, is_bot: true, first_name: "Fake", username: this.botUsername };
     return {
       chat_join_request: {
         chat: { id: chatId, type: "channel", title: `Channel ${chatId}` },
         from: this.user(userId),
         user_chat_id: userId,
         date: now(),
+        ...(inviteLink
+          ? {
+              invite_link: {
+                invite_link: inviteLink,
+                creator: bot,
+                creates_join_request: true,
+                is_primary: false,
+                is_revoked: false,
+              },
+            }
+          : {}),
       },
     };
   }
@@ -277,6 +289,7 @@ export class FakeTelegram {
         return { ...bot, can_join_groups: true, can_read_all_group_messages: false, supports_inline_queries: false };
       case "deleteWebhook":
       case "setMyCommands":
+      case "revokeChatInviteLink":
       case "answerCallbackQuery":
       case "approveChatJoinRequest":
       case "declineChatJoinRequest":

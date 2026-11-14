@@ -184,7 +184,9 @@ Every message exists in Uzbek, Russian and English (`src/flow/texts.ts`), and ea
 
 ### 5.1b Progress card screens
 
-The card shown after verification has a progress bar (`▰▰▰▱▱ 3/5`), share and copy-link buttons, and two more screens that replace it in the same message: the leaderboard (top 10 by first name only, plus the user's own place; cached for 15 s per contest) and the user's own invitees, marked counted or not subscribed yet.
+The card shown after verification has a progress bar (`▰▰▰▱▱ 3/5`), the personal link and one inline button, "Invite friends" (plus the prize button once qualified). Everything else is in the bot's command menu, so it is reachable at any time: `/link` (the card again), `/top` (top 10 by first name only, plus the user's own place; cached for 15 s per contest), `/friends` (the user's invitees, counted or not subscribed yet), `/lang`, `/help`. Any other message gets a pointer to `/start` and `/help`, at most once a minute per user.
+
+When a friend is counted, the referrer gets "Your friend Aziz joined all sponsor channels and was counted — 3/5". Friends counted within `NOTICE_COALESCE_MS` of that are named together in one later message, and notices are dropped rather than delayed when the send queue is long.
 
 ### 5.2 "I subscribed" click
 
@@ -221,11 +223,18 @@ If `required_invites = 0`, a user qualifies at their own verification.
 
 ### 5.4 Prize channel access
 
-- On contest activation the bot creates **one** invite link for the prize chat with `creates_join_request = true` and stores it on the contest.
-- Qualified users receive that link. Sharing it is harmless.
-- On `chat_join_request`: insert into `join_requests` (pending). A worker decides: participant of the contest that owns this chat, `qualified_at` set, not disqualified → `approveChatJoinRequest` and set `prize_joined_at`. Otherwise `declineChatJoinRequest` and message the user (via `user_chat_id`, valid for 5 minutes) with how to qualify and a link to start the bot.
+- When a participant qualifies, the outbox worker creates a **personal** join-request link for them (`creates_join_request = true`, named `P<participant id>`) just before sending the "you qualified" message, and stores it on the participant.
+- On `chat_join_request`: insert into `join_requests` (pending), including the link it came through. A worker decides:
+  - through someone's personal link but from another person → decline ("this link belongs to another participant");
+  - participant of the contest, `qualified_at` set, not disqualified, no recorded sponsor leave → `approveChatJoinRequest`, set `prize_joined_at`, and **revoke** the personal link, so it works once;
+  - anything else → decline and message the user (via `user_chat_id`, valid for 5 minutes).
+- The contest also keeps one shared join-request link, used only as a fallback when a personal link cannot be created; it admits qualified participants and nobody else.
 
-Single-use links (`member_limit = 1`) were rejected: whoever holds the link can use it, so they do not bind access to the qualified person, and creating thousands of links adds another rate-limited call.
+Plain single-use links (`member_limit = 1`) would let whoever holds the link in. A personal join-request link binds access to the person and is revoked after use.
+
+### 5.4a Winner draw
+
+After the contest is finished, the panel draws winners at random with one ticket per counted invite, among qualified participants (or anyone with an invite), disqualified ones excluded and, by default, earlier winners too (for drawing replacements). Weighted sampling without replacement (Efraimidis–Spirakis): each candidate's key is `ln(u)/tickets` with `u` = HMAC-SHA256(seed, participant id) mapped to (0, 1]; the highest keys win. The seed is stored with the draw, so the result can be recomputed. Winners can be messaged in their language through the outbox, once per draw.
 
 ### 5.5 Telegram methods used
 
@@ -255,13 +264,15 @@ The table is **global, not per contest**: membership is a fact about the world, 
 
 ## 7. Data model
 
-The schema is [`migrations/001_init.sql`](migrations/001_init.sql) plus [`002_ui.sql`](migrations/002_ui.sql); those files are the source of truth.
+The schema is [`migrations/001_init.sql`](migrations/001_init.sql) plus the later files in [`migrations/`](migrations/); those files are the source of truth.
 
 | Table | Scope | Holds |
 |---|---|---|
 | `users` | global | One row per Telegram user: name, Telegram language, the language they picked in the bot, whether they blocked the bot. |
 | `contests` | — | Title, status (`draft` / `active` / `finished`), required invites, prize chat and its join-request link, message overrides per language, banner `file_id`. A partial unique index allows one active contest. |
 | `contest_banners` | per contest | The uploaded banner picture, only so the panel can show it. Kept out of `contests`, which the bot reads every few seconds. |
+| `draws`, `draw_winners` | per contest | Each winner draw: rule, seed, candidates, tickets, and the winners with their place. |
+| `bot_chats` | global | Groups and channels the bot was added to, offered as a list in the setup wizard. |
 | `broadcasts` | per contest | One row per admin broadcast; its messages are `outbox` rows with `broadcast_id`, which gives delivery progress and lets one be stopped. |
 | `sponsor_channels` | per contest | Channel id, title, join link, order, health (`ok` / `bot_not_admin`). |
 | `participants` | per contest | **All contest state**: referral code, referrer (set once), `verified_at`, `invite_count`, `qualified_at`, `prize_joined_at`, `disqualified_at`. Unique on `(contest_id, user_id)`. |

@@ -2290,3 +2290,57 @@ button {
     margin-bottom: 8px;
   }
 }
+
+/* ---------- winners ---------- */
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.check-row input {
+  width: auto;
+  margin-top: 3px;
+}
+.share-cell {
+  display: grid;
+  grid-template-columns: 1fr 52px;
+  align-items: center;
+  gap: 8px;
+  text-align: right;
+}
+.how {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+.draw {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.draw:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.draw .table-wrap {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.seed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.seed code {
+  min-width: 0;
+}

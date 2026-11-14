@@ -39,15 +39,17 @@ const uz = {
   wait: "Bir necha soniyadan soʻng qayta urinib koʻring.",
   press_start: "Iltimos, avval /start buyrugʻini yuboring.",
   status:
-    "🏆 <b>{title}</b>\n\n{bar}  <b>{count}/{required}</b>\nYana <b>{left}</b> ta doʻstingizni taklif qiling!\n\n🔗 Shaxsiy havolangiz:\n{link}\n\n<i>Doʻstingiz havolangiz orqali botga kirib, barcha kanallarga obuna boʻlgach hisoblanadi.</i>",
+    "🏆 <b>{title}</b>\n\n{bar}  <b>{count}/{required}</b>\nYana <b>{left}</b> ta doʻstingizni taklif qiling!\n\n🔗 Shaxsiy havolangiz:\n{link}\n\n<i>Doʻstingiz havolangiz orqali botga kirib, barcha kanallarga obuna boʻlgach hisoblanadi.</i>\n\n📋 Menyu: /top — reyting · /friends — doʻstlaringiz",
   status_qualified:
-    "🎉 <b>{title}</b>\n\n{bar}  <b>{count}/{required}</b>\nShartlar bajarildi! Yopiq kanalga qoʻshilish uchun pastdagi tugmani bosing.\n\n🔗 Shaxsiy havolangiz:\n{link}",
+    "🎉 <b>{title}</b>\n\n{bar}  <b>{count}/{required}</b>\nShartlar bajarildi! Yopiq kanalga qoʻshilish uchun pastdagi tugmani bosing.\n\n🔗 Shaxsiy havolangiz:\n{link}\n\n📋 Menyu: /top — reyting · /friends — doʻstlaringiz",
   qualified:
-    "🎉 Tabriklaymiz! Siz <b>{title}</b> tanlovi shartlarini bajardingiz.\n\nPastdagi tugmani bosing va yopiq kanalga qoʻshilish soʻrovini yuboring — u avtomatik tasdiqlanadi.",
-  notice: "👤 Havolangiz orqali yangi doʻst qoʻshildi!\n{bar}  <b>{count}/{required}</b>",
+    "🎉 Tabriklaymiz! Siz <b>{title}</b> tanlovi shartlarini bajardingiz.\n\nPastdagi tugmani bosing va yopiq kanalga qoʻshilish soʻrovini yuboring — u avtomatik tasdiqlanadi. Havola faqat siz uchun va bir marta ishlaydi.",
+  notice: "🎉 Tabriklaymiz! Doʻstingiz <b>{name}</b> barcha homiy kanallarga obuna boʻldi va hisoblandi.\n{bar}  <b>{count}/{required}</b>",
   declined: "Soʻrovingiz rad etildi: siz hali tanlov shartlarini bajarmagansiz.\n\nIshtirok etish uchun {bot_link} ni oching.",
   declined_sponsors:
     "Soʻrovingiz rad etildi: siz homiy kanallardan chiqib ketgansiz.\n\nQayta obuna boʻling va soʻrovni yana yuboring.",
+  declined_not_yours:
+    "Soʻrovingiz rad etildi: bu havola boshqa ishtirokchiga tegishli. Har bir gʻolib oʻz havolasini oladi.\n\nIshtirok etish uchun {bot_link} ni oching.",
   share_text: "Mening havolam orqali tanlovda ishtirok eting!",
   top_title: "🏅 <b>Eng faol ishtirokchilar</b>",
   top_empty: "Hozircha hech kim doʻst taklif qilmagan. Birinchi boʻling!",
@@ -58,17 +60,12 @@ const uz = {
   friends_more: "…va yana {n} ta",
   lang_pick: "🌐 Tilni tanlang:",
   help:
-    "ℹ️ <b>Qanday ishtirok etiladi</b>\n\n1. /start ni bosing va homiy kanallarga obuna boʻling.\n2. «Obuna boʻldim» tugmasini bosing — shaxsiy havolangizni olasiz.\n3. Havolani doʻstlaringizga yuboring. Doʻst havola orqali botga kirib, kanallarga obuna boʻlgach hisoblanadi.\n4. Kerakli sondagi doʻstni taklif qilsangiz, yopiq kanalga kirish tugmasi keladi.\n\n<b>Buyruqlar</b>\n/start — tanlov va havolangiz\n/lang — tilni oʻzgartirish\n/help — shu yordam",
+    "ℹ️ <b>Qanday ishtirok etiladi</b>\n\n1. /start ni bosing va homiy kanallarga obuna boʻling.\n2. «Obuna boʻldim» tugmasini bosing — shaxsiy havolangizni olasiz.\n3. Havolani doʻstlaringizga yuboring. Doʻst havola orqali botga kirib, kanallarga obuna boʻlgach hisoblanadi.\n4. Kerakli sondagi doʻstni taklif qilsangiz, yopiq kanalga kirish uchun shaxsiy havola keladi.\n\n<b>Buyruqlar</b>\n/start — tanlov\n/link — havolangiz va natijangiz\n/top — reyting va oʻrningiz\n/friends — taklif qilgan doʻstlaringiz\n/lang — tilni oʻzgartirish\n/help — shu yordam",
   unknown: "Bu buyruqni tushunmadim. Tanlovni ochish uchun /start, yordam uchun /help ni bosing.",
+  winner: "🏆 Tabriklaymiz! Siz <b>{title}</b> tanlovi gʻoliblaridan birisiz ({place}-oʻrin). Tez orada siz bilan bogʻlanamiz.",
   btn_check: "✅ Obuna boʻldim",
-  btn_progress: "🔄 Yangilash",
-  btn_share: "📨 Ulashish",
-  btn_copy: "📋 Nusxalash",
+  btn_share: "📨 Doʻstlarni taklif qilish",
   btn_prize: "🔓 Yopiq kanalga kirish",
-  btn_top: "🏅 Reyting",
-  btn_friends: "👥 Doʻstlarim",
-  btn_back: "⬅️ Orqaga",
-  btn_lang: "🌐 Til",
 };
 
 export type TextKey = keyof typeof uz;
@@ -83,15 +80,17 @@ const ru: Texts = {
   wait: "Подождите несколько секунд и попробуйте снова.",
   press_start: "Сначала отправьте /start.",
   status:
-    "🏆 <b>{title}</b>\n\n{bar}  <b>{count}/{required}</b>\nПригласите ещё <b>{left}</b>!\n\n🔗 Ваша личная ссылка:\n{link}\n\n<i>Друг засчитывается, когда откроет бота по вашей ссылке и подпишется на все каналы.</i>",
+    "🏆 <b>{title}</b>\n\n{bar}  <b>{count}/{required}</b>\nПригласите ещё <b>{left}</b>!\n\n🔗 Ваша личная ссылка:\n{link}\n\n<i>Друг засчитывается, когда откроет бота по вашей ссылке и подпишется на все каналы.</i>\n\n📋 Меню: /top — рейтинг · /friends — ваши друзья",
   status_qualified:
-    "🎉 <b>{title}</b>\n\n{bar}  <b>{count}/{required}</b>\nУсловия выполнены! Нажмите кнопку ниже, чтобы вступить в закрытый канал.\n\n🔗 Ваша личная ссылка:\n{link}",
+    "🎉 <b>{title}</b>\n\n{bar}  <b>{count}/{required}</b>\nУсловия выполнены! Нажмите кнопку ниже, чтобы вступить в закрытый канал.\n\n🔗 Ваша личная ссылка:\n{link}\n\n📋 Меню: /top — рейтинг · /friends — ваши друзья",
   qualified:
-    "🎉 Поздравляем! Вы выполнили условия конкурса <b>{title}</b>.\n\nНажмите кнопку ниже и отправьте заявку в закрытый канал — она будет одобрена автоматически.",
-  notice: "👤 По вашей ссылке присоединился друг!\n{bar}  <b>{count}/{required}</b>",
+    "🎉 Поздравляем! Вы выполнили условия конкурса <b>{title}</b>.\n\nНажмите кнопку ниже и отправьте заявку в закрытый канал — она будет одобрена автоматически. Ссылка только для вас и работает один раз.",
+  notice: "🎉 Поздравляем! Ваш друг <b>{name}</b> подписался на все каналы спонсоров и засчитан.\n{bar}  <b>{count}/{required}</b>",
   declined: "Ваша заявка отклонена: вы ещё не выполнили условия конкурса.\n\nОткройте {bot_link}, чтобы участвовать.",
   declined_sponsors:
     "Ваша заявка отклонена: вы отписались от каналов спонсоров.\n\nПодпишитесь снова и отправьте заявку ещё раз.",
+  declined_not_yours:
+    "Ваша заявка отклонена: эта ссылка принадлежит другому участнику. Каждый победитель получает свою ссылку.\n\nОткройте {bot_link}, чтобы участвовать.",
   share_text: "Участвуй в конкурсе по моей ссылке!",
   top_title: "🏅 <b>Самые активные участники</b>",
   top_empty: "Пока никто никого не пригласил. Будьте первым!",
@@ -102,17 +101,12 @@ const ru: Texts = {
   friends_more: "…и ещё {n}",
   lang_pick: "🌐 Выберите язык:",
   help:
-    "ℹ️ <b>Как участвовать</b>\n\n1. Нажмите /start и подпишитесь на каналы спонсоров.\n2. Нажмите «Я подписался» — вы получите личную ссылку.\n3. Отправьте ссылку друзьям. Друг засчитывается, когда откроет бота по ссылке и подпишется на каналы.\n4. Когда пригласите нужное число друзей, придёт кнопка входа в закрытый канал.\n\n<b>Команды</b>\n/start — конкурс и ваша ссылка\n/lang — сменить язык\n/help — эта справка",
+    "ℹ️ <b>Как участвовать</b>\n\n1. Нажмите /start и подпишитесь на каналы спонсоров.\n2. Нажмите «Я подписался» — вы получите личную ссылку.\n3. Отправьте ссылку друзьям. Друг засчитывается, когда откроет бота по ссылке и подпишется на каналы.\n4. Когда пригласите нужное число друзей, придёт личная ссылка в закрытый канал.\n\n<b>Команды</b>\n/start — конкурс\n/link — ваша ссылка и прогресс\n/top — рейтинг и ваше место\n/friends — приглашённые друзья\n/lang — сменить язык\n/help — эта справка",
   unknown: "Не понял эту команду. Нажмите /start, чтобы открыть конкурс, или /help для справки.",
+  winner: "🏆 Поздравляем! Вы один из победителей конкурса <b>{title}</b> ({place}-е место). Скоро мы с вами свяжемся.",
   btn_check: "✅ Я подписался",
-  btn_progress: "🔄 Обновить",
-  btn_share: "📨 Поделиться",
-  btn_copy: "📋 Копировать",
+  btn_share: "📨 Пригласить друзей",
   btn_prize: "🔓 Войти в закрытый канал",
-  btn_top: "🏅 Рейтинг",
-  btn_friends: "👥 Мои друзья",
-  btn_back: "⬅️ Назад",
-  btn_lang: "🌐 Язык",
 };
 
 const en: Texts = {
@@ -124,16 +118,18 @@ const en: Texts = {
   wait: "Please wait a few seconds and try again.",
   press_start: "Please send /start first.",
   status:
-    "🏆 <b>{title}</b>\n\n{bar}  <b>{count}/{required}</b>\nInvite <b>{left}</b> more!\n\n🔗 Your personal link:\n{link}\n\n<i>A friend counts once they open the bot with your link and subscribe to all channels.</i>",
+    "🏆 <b>{title}</b>\n\n{bar}  <b>{count}/{required}</b>\nInvite <b>{left}</b> more!\n\n🔗 Your personal link:\n{link}\n\n<i>A friend counts once they open the bot with your link and subscribe to all channels.</i>\n\n📋 Menu: /top — leaderboard · /friends — your friends",
   status_qualified:
-    "🎉 <b>{title}</b>\n\n{bar}  <b>{count}/{required}</b>\nYou have met the requirements! Press the button below to join the private channel.\n\n🔗 Your personal link:\n{link}",
+    "🎉 <b>{title}</b>\n\n{bar}  <b>{count}/{required}</b>\nYou have met the requirements! Press the button below to join the private channel.\n\n🔗 Your personal link:\n{link}\n\n📋 Menu: /top — leaderboard · /friends — your friends",
   qualified:
-    "🎉 Congratulations! You have met the requirements of <b>{title}</b>.\n\nPress the button below and request to join the private channel. Your request is approved automatically.",
-  notice: "👤 A friend joined with your link!\n{bar}  <b>{count}/{required}</b>",
+    "🎉 Congratulations! You have met the requirements of <b>{title}</b>.\n\nPress the button below and request to join the private channel. Your request is approved automatically. The link is yours alone and works once.",
+  notice: "🎉 Congratulations! Your friend <b>{name}</b> joined all sponsor channels and was counted.\n{bar}  <b>{count}/{required}</b>",
   declined:
     "Your request to join was declined: you have not met the contest requirements yet.\n\nOpen {bot_link} to take part.",
   declined_sponsors:
     "Your request to join was declined: you are no longer subscribed to all sponsor channels.\n\nSubscribe again, then request to join once more.",
+  declined_not_yours:
+    "Your request to join was declined: this link belongs to another participant. Every winner gets their own link.\n\nOpen {bot_link} to take part.",
   share_text: "Join the contest with my link!",
   top_title: "🏅 <b>Top inviters</b>",
   top_empty: "Nobody has invited anyone yet. Be the first!",
@@ -144,17 +140,12 @@ const en: Texts = {
   friends_more: "…and {n} more",
   lang_pick: "🌐 Choose your language:",
   help:
-    "ℹ️ <b>How to take part</b>\n\n1. Press /start and subscribe to the sponsor channels.\n2. Press «I subscribed» to get your personal link.\n3. Send the link to friends. A friend counts once they open the bot with it and subscribe to the channels.\n4. When you have invited enough friends, you get a button to join the private channel.\n\n<b>Commands</b>\n/start — the contest and your link\n/lang — change language\n/help — this help",
+    "ℹ️ <b>How to take part</b>\n\n1. Press /start and subscribe to the sponsor channels.\n2. Press «I subscribed» to get your personal link.\n3. Send the link to friends. A friend counts once they open the bot with it and subscribe to the channels.\n4. When you have invited enough friends, you get a personal link to the private channel.\n\n<b>Commands</b>\n/start — the contest\n/link — your link and progress\n/top — leaderboard and your place\n/friends — friends you invited\n/lang — change language\n/help — this help",
   unknown: "I didn't understand that. Press /start to open the contest, or /help for help.",
+  winner: "🏆 Congratulations! You are one of the winners of <b>{title}</b> (place {place}). We will contact you soon.",
   btn_check: "✅ I subscribed",
-  btn_progress: "🔄 Refresh",
-  btn_share: "📨 Share",
-  btn_copy: "📋 Copy link",
+  btn_share: "📨 Invite friends",
   btn_prize: "🔓 Open the private channel",
-  btn_top: "🏅 Leaderboard",
-  btn_friends: "👥 My friends",
-  btn_back: "⬅️ Back",
-  btn_lang: "🌐 Language",
 };
 
 export const defaultTexts: Record<Locale, Texts> = { uz, ru, en };
@@ -191,8 +182,6 @@ export const refLink = (botUsername: string, refCode: string) => `https://t.me/$
 const names = (sponsors: Sponsor[]) => sponsors.map((s) => s.title).join(", ");
 export const sponsorNames = names;
 
-const langButton = (t: Texts): InlineKeyboardButton => ({ text: t.btn_lang, callback_data: "lang" });
-
 /**
  * The "subscribe to these channels" message. `missing` marks channels the user is not in;
  * when it is given, every other channel is shown as done.
@@ -215,13 +204,20 @@ export function gateView(a: ActiveContest, locale: Locale, missing?: Sponsor[]):
       inline_keyboard: [
         ...toJoin.map((s) => [{ text: `➕ ${s.title}`, url: s.join_url }]),
         [{ text: t.btn_check, callback_data: "check" }],
-        [langButton(t)],
       ],
     },
   };
 }
 
-/** The "your link and progress" card shown after verification. */
+/** The prize link a participant should use: their own when it exists, else the contest's shared one. */
+export const prizeLinkFor = (contest: Contest, p: Pick<Participant, "prize_invite_link">) =>
+  p.prize_invite_link ?? contest.prize_invite_link;
+
+/**
+ * The "your link and progress" card shown after verification. Inline buttons are kept to
+ * the one that matters (invite friends), plus the prize button once qualified; everything
+ * else is in the bot's command menu.
+ */
 export function statusView(a: ActiveContest, p: Participant, botUsername: string, locale: Locale): View {
   const t = textsOf(a.contest, locale);
   const link = refLink(botUsername, p.ref_code);
@@ -236,23 +232,9 @@ export function statusView(a: ActiveContest, p: Participant, botUsername: string
     bar: progressBar(p.invite_count, required),
   });
   const share = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(t.share_text)}`;
-  const rows: InlineKeyboardButton[][] = [
-    [
-      { text: t.btn_share, url: share },
-      { text: t.btn_copy, copy_text: { text: link } },
-    ],
-    [
-      { text: t.btn_top, callback_data: "top" },
-      { text: t.btn_friends, callback_data: "friends" },
-    ],
-    [
-      { text: t.btn_progress, callback_data: "progress" },
-      langButton(t),
-    ],
-  ];
-  if (qualified && a.contest.prize_invite_link) {
-    rows.unshift([{ text: t.btn_prize, url: a.contest.prize_invite_link }]);
-  }
+  const rows: InlineKeyboardButton[][] = [[{ text: t.btn_share, url: share }]];
+  const prize = prizeLinkFor(a.contest, p);
+  if (qualified && prize && !p.prize_link_used_at) rows.unshift([{ text: t.btn_prize, url: prize }]);
   return { text, markup: { inline_keyboard: rows }, photo: a.contest.banner_file_id };
 }
 
@@ -265,7 +247,8 @@ export interface LeaderRow {
 const MEDALS = ["🥇", "🥈", "🥉"];
 
 /** Shows first names only (no usernames): the list is visible to every participant. */
-const publicName = (r: { first_name: string | null }) => escapeHtml(truncate((r.first_name ?? "").trim() || "—", 18));
+export const publicName = (r: { first_name: string | null }) =>
+  escapeHtml(truncate((r.first_name ?? "").trim() || "—", 18));
 
 export function leaderboardView(
   a: ActiveContest,
@@ -277,7 +260,7 @@ export function leaderboardView(
   const lines = top.map((r, i) => `${MEDALS[i] ?? `<b>${i + 1}.</b>`} ${publicName(r)} — <b>${r.invite_count}</b>`);
   let text = `${t.top_title}\n\n${lines.length > 0 ? lines.join("\n") : t.top_empty}`;
   if (me) text += "\n\n" + render(t.top_you, { rank: me.rank, count: me.count });
-  return { text, markup: { inline_keyboard: [[{ text: t.btn_back, callback_data: "progress" }]] } };
+  return { text, markup: { inline_keyboard: [] } };
 }
 
 export interface FriendRow {
@@ -297,7 +280,7 @@ export function friendsView(a: ActiveContest, locale: Locale, friends: FriendRow
     if (total > friends.length) text += "\n" + render(t.friends_more, { n: total - friends.length });
     text += "\n\n<i>" + t.friends_legend + "</i>";
   }
-  return { text, markup: { inline_keyboard: [[{ text: t.btn_back, callback_data: "progress" }]] } };
+  return { text, markup: { inline_keyboard: [] } };
 }
 
 export function languageView(contest: Contest | null, locale: Locale): View {
@@ -312,13 +295,15 @@ export function languageView(contest: Contest | null, locale: Locale): View {
   };
 }
 
-/** The durable "you qualified" message. */
-export function qualifiedView(contest: Contest, locale: Locale): { text: string; markup?: InlineKeyboardMarkup } {
+/** The durable "you qualified" message, with the participant's own prize link. */
+export function qualifiedView(
+  contest: Contest,
+  locale: Locale,
+  prizeLink: string | null,
+): { text: string; markup?: InlineKeyboardMarkup } {
   const t = textsOf(contest, locale);
   return {
     text: render(t.qualified, { title: contest.title, required: contest.required_invites }),
-    markup: contest.prize_invite_link
-      ? { inline_keyboard: [[{ text: t.btn_prize, url: contest.prize_invite_link }]] }
-      : undefined,
+    markup: prizeLink ? { inline_keyboard: [[{ text: t.btn_prize, url: prizeLink }]] } : undefined,
   };
 }

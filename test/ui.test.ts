@@ -62,8 +62,8 @@ describe("bot screens", () => {
     expect(ru!.payload.text).toContain("Добро пожаловать");
 
     // Language picker, then English: the same message is redrawn.
-    h.fake.push(h.fake.click(500, "lang"));
-    await waitFor(() => h.fake.sent(500, "editMessageText").some((c) => c.payload.text.includes("Tilni")), "picker");
+    h.fake.push(h.fake.command(500, "lang"));
+    await waitFor(() => h.fake.sent(500).some((c) => c.payload.text.includes("Tilni")), "picker");
     h.fake.push(h.fake.click(500, "lang:en"));
     await waitFor(
       () => h.fake.sent(500, "editMessageText").some((c) => c.payload.text.includes("Welcome to")),
@@ -99,23 +99,26 @@ describe("bot screens", () => {
     await waitFor(async () => (await h.participant(600))!.invite_count === 1, "one invite");
     await waitFor(() => h.participant(602), "602 started");
 
-    h.fake.push(h.fake.click(600, "top"));
+    h.fake.push(h.fake.command(600, "top"));
     const top = await waitFor(
-      () => h.fake.sent(600, "editMessageText").find((c) => c.payload.text.includes("faol")),
+      () => h.fake.sent(600).find((c) => c.payload.text.includes("faol")),
       "leaderboard",
     );
     expect(top.payload.text).toContain("🥇");
     expect(top.payload.text).toContain("#1");
 
-    h.fake.push(h.fake.click(600, "friends"));
+    h.fake.push(h.fake.command(600, "friends"));
     const friends = await waitFor(
-      () => h.fake.sent(600, "editMessageText").find((c) => c.payload.text.includes("doʻstlar")),
+      () => h.fake.sent(600).find((c) => c.payload.text.includes("doʻstlar")),
       "friends",
     );
     expect(friends.payload.text).toContain("(2)");
     expect(friends.payload.text).toContain("✅");
     expect(friends.payload.text).toContain("⏳");
-    expect(friends.payload.reply_markup.inline_keyboard[0][0].callback_data).toBe("progress");
+    // The progress card keeps a single inline button; the rest lives in the command menu.
+    h.fake.push(h.fake.command(600, "link"));
+    const card = await waitFor(() => h.fake.sent(600).find((c) => c.payload.text.includes("/top")), "card");
+    expect(card.payload.reply_markup.inline_keyboard.flat()).toHaveLength(1);
   });
 
   it("sends the banner as a picture and edits its caption", async () => {
@@ -224,5 +227,33 @@ describe("admin panel data", () => {
     expect(after.cancelled).toBe(cancel.stopped);
     expect(after.sent + after.cancelled).toBe(second.json.queued);
     expect(after.cancelled_at).not.toBeNull();
+  });
+
+  it("draws winners weighted by invites, and notifies them", async () => {
+    const id = (await h.app.deps.cache.active())!.contest.id;
+    // Not before the contest is finished: counts could still change.
+    expect((await call("POST", `/contests/${id}/draws`, { winners: 1, eligibility: "invited" })).status).toBe(400);
+    await call("POST", `/contests/${id}/finish`, {});
+
+    const preview = (await call("GET", `/contests/${id}/draw/preview?eligibility=invited`)).json;
+    expect(preview.candidates).toBeGreaterThan(0);
+    expect(preview.top[0].share).toBeGreaterThan(0);
+
+    const made = await call("POST", `/contests/${id}/draws`, { winners: 1, eligibility: "invited" });
+    expect(made.status).toBe(200);
+    const [draw] = (await call("GET", `/contests/${id}/draws`)).json;
+    expect(draw.winners).toHaveLength(1);
+    expect(draw.seed).toMatch(/^[0-9a-f]{64}$/);
+
+    // Excluding previous winners, the same person cannot be drawn again.
+    const again = (await call("GET", `/contests/${id}/draw/preview?eligibility=invited`)).json;
+    expect(again.candidates).toBe(preview.candidates - 1);
+    expect((await call("GET", `/contests/${id}/draw/preview?eligibility=invited&exclude_previous=false`)).json.candidates).toBe(
+      preview.candidates,
+    );
+
+    expect((await call("POST", `/draws/${draw.id}/notify`, {})).json.queued).toBe(1);
+    const winnerId = draw.winners[0].user_id;
+    await waitFor(() => h.fake.sent(winnerId).some((c) => c.payload.text.includes("gʻoliblaridan")), "winner message");
   });
 });

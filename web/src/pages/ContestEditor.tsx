@@ -499,19 +499,16 @@ function Prize({ contest, readOnly, onChanged }: { contest: Contest; readOnly: b
 // ---- 4. messages ----
 
 const SCREENS: { id: string; label: string; keys: string[] }[] = [
-  { id: "welcome", label: "Welcome", keys: ["gate", "gate_missing", "btn_check", "btn_lang"] },
-  {
-    id: "progress",
-    label: "Progress card",
-    keys: ["status", "share_text", "btn_share", "btn_copy", "btn_top", "btn_friends", "btn_progress"],
-  },
+  { id: "welcome", label: "Welcome", keys: ["gate", "gate_missing", "btn_check"] },
+  { id: "progress", label: "Progress card", keys: ["status", "btn_share", "share_text", "notice"] },
   { id: "qualified", label: "Qualified", keys: ["status_qualified", "qualified", "btn_prize"] },
-  { id: "leaderboard", label: "Leaderboard", keys: ["top_title", "top_empty", "top_you", "btn_back"] },
-  { id: "friends", label: "Friends", keys: ["friends_title", "friends_empty", "friends_legend", "friends_more"] },
+  { id: "leaderboard", label: "/top", keys: ["top_title", "top_empty", "top_you"] },
+  { id: "friends", label: "/friends", keys: ["friends_title", "friends_empty", "friends_legend", "friends_more"] },
+  { id: "winner", label: "Winner", keys: ["winner"] },
   {
     id: "replies",
     label: "Other replies",
-    keys: ["notice", "declined", "declined_sponsors", "not_subscribed", "checking", "wait", "press_start", "no_contest", "lang_pick", "help", "unknown"],
+    keys: ["declined", "declined_sponsors", "declined_not_yours", "not_subscribed", "checking", "wait", "press_start", "no_contest", "lang_pick", "help", "unknown"],
   },
 ];
 
@@ -521,7 +518,9 @@ const KEY_INFO: Record<string, string> = {
   status: "Progress card. {title} {bar} {count} {required} {left} {link}",
   status_qualified: "Progress card once qualified. {title} {bar} {count} {required} {link}",
   qualified: "Sent once when the user qualifies. {title} {required}",
-  notice: "Sent to the referrer when a friend is counted. {bar} {count} {required}",
+  notice: "Sent to the referrer when a friend is counted. {name} {bar} {count} {required}",
+  winner: "Sent to each winner of a draw. {title} {place}",
+  declined_not_yours: "Reply when someone uses another participant's personal prize link. {bot_link}",
   declined: "Reply to a prize-chat join request from someone not qualified. {bot_link}",
   declined_sponsors: "Reply when a qualified user has left a sponsor channel.",
   not_subscribed: "Pop-up when channels are missing. {channels}",
@@ -751,26 +750,29 @@ function buildPreview(
     rank: 4,
     total: 7,
     n: 3,
+    name: "Aziza",
+    place: 1,
   };
   const names = sponsors.length > 0 ? sponsors.map((s) => s.title) : ["Sponsor channel 1", "Sponsor channel 2"];
-  const statusButtons: PreviewButton[][] = [
-    [{ text: t("btn_share"), url: "x" }, { text: t("btn_copy") }],
-    [{ text: t("btn_top") }, { text: t("btn_friends") }],
-    [{ text: t("btn_progress") }, { text: t("btn_lang") }],
-  ];
-  const back = [[{ text: t("btn_back") }]];
+  const statusButtons: PreviewButton[][] = [[{ text: t("btn_share"), url: "x" }]];
+  const none: PreviewButton[][] = [];
 
   switch (screen) {
     case "welcome": {
       const list = names.map((n, i) => `${i + 1}. ${i === names.length - 1 ? "❌" : "✅"} ${esc(n)}`).join("\n");
       return {
         text: `${fillSample(t("gate"), sample)}\n\n${list}\n\n${fillSample(t("gate_missing"), sample)}`,
-        buttons: [[{ text: `➕ ${names[names.length - 1]}`, url: "x" }], [{ text: t("btn_check") }], [{ text: t("btn_lang") }]],
+        buttons: [[{ text: `➕ ${names[names.length - 1]}`, url: "x" }], [{ text: t("btn_check") }]],
         photo,
       };
     }
     case "progress":
-      return { text: fillSample(t("status"), sample), buttons: statusButtons, photo };
+      return {
+        text: fillSample(t("status"), sample),
+        buttons: statusButtons,
+        photo,
+        extra: { text: fillSample(t("notice"), sample), buttons: none },
+      };
     case "qualified":
       return {
         text: fillSample(t("status_qualified"), { ...sample, count: contest.required_invites, bar: bar(1, 1) }),
@@ -781,18 +783,20 @@ function buildPreview(
     case "leaderboard":
       return {
         text: `${t("top_title")}\n\n🥇 Aziza — <b>24</b>\n🥈 Bekzod — <b>19</b>\n🥉 Dilnoza — <b>15</b>\n<b>4.</b> Jasur — <b>12</b>\n\n${fillSample(t("top_you"), sample)}`,
-        buttons: back,
+        buttons: none,
       };
     case "friends":
       return {
         text: `${fillSample(t("friends_title"), sample)}\n\n✅ Aziza\n✅ Bekzod\n⏳ Kamola\n${fillSample(t("friends_more"), sample)}\n\n<i>${t("friends_legend")}</i>`,
-        buttons: back,
+        buttons: none,
       };
+    case "winner":
+      return { text: fillSample(t("winner"), sample), buttons: none };
     default:
       return {
-        text: fillSample(t("notice"), sample),
-        buttons: [],
-        extra: { text: fillSample(t("declined"), sample), buttons: [] },
+        text: fillSample(t("help"), sample),
+        buttons: none,
+        extra: { text: fillSample(t("declined"), sample), buttons: none },
       };
   }
 }
