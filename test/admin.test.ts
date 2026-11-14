@@ -23,6 +23,24 @@ async function loginToken(): Promise<string> {
 }
 
 describe("admin panel", () => {
+  it("alerts admins on sign-in and can end every session", async () => {
+    const token = await loginToken();
+    const res = await h.app.http.inject({
+      method: "POST",
+      url: "/admin/api/login",
+      payload: { token },
+      headers: { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 Chrome/130.0 Safari/537.36" },
+    });
+    const cookie = res.cookies.find((c) => c.name === "sid")!.value;
+    const alert = await waitFor(() => h.fake.sent(ADMIN_ID).find((c) => c.payload.text.includes("Admin panel sign-in")), "alert");
+    expect(alert.payload.text).toContain("Chrome on macOS");
+    expect((await call("GET", "/me", undefined, cookie)).statusCode).toBe(200);
+
+    h.fake.push(h.fake.command(ADMIN_ID, "signout_all"));
+    await waitFor(() => h.fake.sent(ADMIN_ID).some((c) => c.payload.text.includes("Ended")), "signout reply");
+    expect((await call("GET", "/me", undefined, cookie)).statusCode).toBe(401);
+  });
+
   it("refuses requests without a session", async () => {
     expect((await call("GET", "/me", undefined, "")).statusCode).toBe(401);
     expect((await call("GET", "/contests", undefined, "made-up")).statusCode).toBe(401);

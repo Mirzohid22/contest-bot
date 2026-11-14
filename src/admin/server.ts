@@ -10,7 +10,8 @@ import { z, ZodError } from "zod";
 import type { Deps } from "../deps.js";
 import type { Poller } from "../ingest/poller.js";
 import { buildMetrics } from "../metrics.js";
-import { sha256 } from "../util.js";
+import { P } from "../tg/gateway.js";
+import { escapeHtml, sha256 } from "../util.js";
 import { registerRoutes } from "./routes.js";
 
 declare module "fastify" {
@@ -21,6 +22,18 @@ declare module "fastify" {
 
 const WEB_DIST = fileURLToPath(new URL("../../web/dist", import.meta.url));
 const SESSION_DAYS = 7;
+
+/** "Chrome on macOS" from a User-Agent header, good enough to recognise your own device. */
+export function describeAgent(ua: string | undefined): string {
+  if (!ua) return "unknown";
+  const browser =
+    /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Firefox\//.test(ua) ? "Firefox"
+    : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "a browser";
+  const os =
+    /iPhone|iPad/.test(ua) ? "iOS" : /Android/.test(ua) ? "Android" : /Mac OS X/.test(ua) ? "macOS"
+    : /Windows/.test(ua) ? "Windows" : /Linux/.test(ua) ? "Linux" : "an unknown system";
+  return `${browser} on ${os}`;
+}
 
 export class HttpProblem extends Error {
   constructor(
@@ -114,6 +127,15 @@ export async function buildAdmin(d: Deps, extra: { poller: Poller }): Promise<Fa
     await sql`
       INSERT INTO audit_log (admin_tg_id, action) VALUES (${row.tg_id}, 'login')
     `.execute(db);
+    // Every admin hears about every sign-in, so a login nobody made does not go unnoticed.
+    const text =
+      `🔐 <b>Admin panel sign-in</b>\n\n` +
+      `Account: <code>${row.tg_id}</code>\n` +
+      `Time: ${new Date().toISOString().replace("T", " ").slice(0, 16)} UTC\n` +
+      `IP: <code>${escapeHtml(req.ip)}</code>\n` +
+      `Device: ${escapeHtml(describeAgent(req.headers["user-agent"]))}\n\n` +
+      `Not you? Send /signout_all to end every panel session, then secure the Telegram account above.`;
+    for (const id of cfg.ADMIN_IDS) d.tg.fire(d.tg.send(id, text, { priority: P.IMPORTANT }));
     reply.setCookie("sid", session, {
       path: "/admin",
       httpOnly: true,

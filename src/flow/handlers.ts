@@ -130,6 +130,24 @@ export function registerHandlers(bot: Bot, d: Deps): void {
     );
   });
 
+  // Ends every admin panel session at once, for when a sign-in alert shows a login nobody made.
+  dm.command("signout_all", async (ctx) => {
+    if (!cfg.ADMIN_IDS.includes(ctx.from.id)) return;
+    const gone = await sql`DELETE FROM admin_sessions`.execute(db);
+    await sql`DELETE FROM admin_login_tokens WHERE used_at IS NULL`.execute(db);
+    await sql`
+      INSERT INTO audit_log (admin_tg_id, action, detail)
+      VALUES (${ctx.from.id}, 'signout_all', ${JSON.stringify({ sessions: Number(gone.numAffectedRows ?? 0) })}::jsonb)
+    `.execute(db);
+    tg.fire(
+      tg.send(
+        ctx.from.id,
+        `✅ Ended ${Number(gone.numAffectedRows ?? 0)} panel session(s) and cancelled unused sign-in links. Send /admin to sign in again.`,
+        { priority: P.IMPORTANT },
+      ),
+    );
+  });
+
   bot.callbackQuery("check", async (ctx) => {
     const userId = ctx.from.id;
     const cb = ctx.callbackQuery.id;
