@@ -195,6 +195,9 @@ describe("contest flow", () => {
   it("declines a qualified user who comes through any link but their own", async () => {
     const declines = h.fake.count("declineChatJoinRequest");
     // 400 is qualified and subscribed again, but comes through the contest's shared link.
+    // Join requests are deduplicated per user and second (Telegram's dates are in seconds),
+    // so this one must not share a second with the previous test's request.
+    await new Promise((r) => setTimeout(r, 1100));
     h.fake.push(h.fake.memberChange(SPONSOR_A, 400, true));
     h.fake.push(h.fake.joinRequest(PRIZE_CHAT, 400, "https://t.me/+prize"));
     await waitFor(() => h.fake.count("declineChatJoinRequest") === declines + 1, "decline");
