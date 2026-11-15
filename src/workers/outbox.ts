@@ -85,7 +85,18 @@ export class OutboxWorker {
     `.execute(this.d.db);
     const row = r.rows[0];
     if (!row) return undefined;
-    const link = await ensurePrizeLink(this.d, row.c, row);
-    return link ? { inline_keyboard: [[{ text: label, url: link }]] } : undefined;
+    // Without a link (no prize chat yet, or Telegram refused) the message goes without the
+    // button: the user's /link makes the link later. Never a shared link instead.
+    try {
+      const link = await ensurePrizeLink(this.d, row.c, row);
+      return link ? { inline_keyboard: [[{ text: label, url: link }]] } : undefined;
+    } catch (err) {
+      this.d.log.warn({ err, participant: participantId }, "could not create a personal prize link");
+      this.d.alert(
+        "prize-link",
+        "⚠️ The bot could not create a personal link to the prize chat. Check that it is still an admin there with the “Invite users via link” right.",
+      );
+      return undefined;
+    }
   }
 }

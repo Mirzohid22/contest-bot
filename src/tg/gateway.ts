@@ -1,5 +1,5 @@
 import { type Api, GrammyError, type InputFile } from "grammy";
-import type { ChatFullInfo, ChatInviteLink, ChatMember, InlineKeyboardMarkup, Message } from "grammy/types";
+import type { ChatFullInfo, ChatInviteLink, ChatMember, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup } from "grammy/types";
 import type { Logger } from "pino";
 import type { Config } from "../config.js";
 import { Dropped, Lane, RateLimited } from "./lane.js";
@@ -24,7 +24,8 @@ export const P = {
 
 export interface SendOptions {
   priority?: number;
-  markup?: InlineKeyboardMarkup;
+  /** Inline buttons under the message, or the menu keyboard above the message field. */
+  markup?: InlineKeyboardMarkup | ReplyKeyboardMarkup;
   maxAgeMs?: number;
 }
 
@@ -171,6 +172,11 @@ export class Tg {
 
   getChatMember(chatId: number, userId: number): Promise<ChatMember> {
     return this.lanes.lookup.schedule(() => this.raw.getChatMember(chatId, userId));
+  }
+
+  /** Makes a new primary invite link for the chat, which revokes the old one. */
+  resetPrimaryLink(chatId: number): Promise<string> {
+    return this.lanes.manage.schedule(() => this.raw.exportChatInviteLink(chatId));
   }
 
   getChat(chat: number | string): Promise<ChatFullInfo> {

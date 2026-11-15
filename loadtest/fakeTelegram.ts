@@ -320,6 +320,8 @@ export class FakeTelegram {
           ],
         };
       }
+      case "exportChatInviteLink":
+        return `https://t.me/+primary${this.nextLink++}`;
       case "getChatMemberCount":
         return 1234;
       case "getChatMember": {

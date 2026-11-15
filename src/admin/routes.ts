@@ -228,6 +228,19 @@ export function registerRoutes(api: FastifyInstance, d: Deps, extra: { poller: P
     return contest;
   });
 
+  /**
+   * Replaces the prize chat's primary invite link, which revokes the old one. The bot can
+   * only revoke links it made itself; links other admins made must be revoked in Telegram.
+   */
+  api.post("/contests/:id/prize/reset-link", async (req) => {
+    const { id } = idParam.parse(req.params);
+    const contest = await contestById(id);
+    if (!contest.prize_chat_id) throw new HttpProblem(400, "Set the prize chat first");
+    await tg.resetPrimaryLink(contest.prize_chat_id);
+    await audit(req.adminId, "contest.prize_reset_link", { id });
+    return { ok: true };
+  });
+
   api.post("/contests/:id/activate", async (req) => {
     const { id } = idParam.parse(req.params);
     const contest = await contestById(id);
@@ -518,6 +531,19 @@ export function registerRoutes(api: FastifyInstance, d: Deps, extra: { poller: P
     else if (purpose === "sponsor" && !info.username && !canInvite) {
       problem = "This channel is private: give the bot the “Invite users via link” right so it can make a join link.";
     }
+    // Ways into a prize chat that do not go through the bot's join-request check.
+    const warnings: string[] = [];
+    if (purpose === "prize") {
+      if (info.username) {
+        problem ??= `This chat is public (@${info.username}): anyone can join without the bot. Make it private first.`;
+      }
+      if ((info.type === "group" || info.type === "supergroup") && info.permissions?.can_invite_users) {
+        warnings.push("Members can add people or make invite links. Turn off “Add members” for members in the group's permissions.");
+      }
+      warnings.push(
+        "Invite links made by human admins bypass the bot. Revoke them in the chat's Invite links, and press “Reset main link” below.",
+      );
+    }
     return {
       id: info.id,
       title: info.title ?? String(info.id),
@@ -528,6 +554,7 @@ export function registerRoutes(api: FastifyInstance, d: Deps, extra: { poller: P
       can_invite_users: canInvite,
       ok: problem === null,
       problem,
+      warnings,
     };
   });
 

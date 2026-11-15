@@ -2344,3 +2344,17 @@ button {
 .seed code {
   min-width: 0;
 }
+
+.lockdown {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.warn-line {
+  color: var(--amber);
+  margin-top: 4px;
+}

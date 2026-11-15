@@ -321,6 +321,11 @@ function ChatChecker({
               </Badge>
             </div>
             {check.problem && <p className="field-error">{check.problem}</p>}
+            {check.warnings?.map((w) => (
+              <p key={w} className="field-hint warn-line">
+                ⚠️ {w}
+              </p>
+            ))}
           </div>
           {check.ok ? (
             <Button variant="primary" icon="plus" onClick={use} busy={busy === "use"}>
@@ -453,6 +458,27 @@ function Sponsors({
 
 function Prize({ contest, readOnly, onChanged }: { contest: Contest; readOnly: boolean; onChanged: () => Promise<void> }) {
   const copy = useCopy();
+  const { run, confirm } = useUi();
+  const [resetting, setResetting] = useState(false);
+  const current = useLoad(
+    () =>
+      contest.prize_chat_id
+        ? api<ChatCheck>("/chats/inspect", { body: { chat: String(contest.prize_chat_id), purpose: "prize" } })
+        : Promise.resolve(null),
+    [contest.prize_chat_id],
+  );
+
+  const resetLink = async () => {
+    const ok = await confirm({
+      title: "Reset the chat's main invite link?",
+      body: "Telegram makes a new main link and the old one stops working. Personal links the bot gave to participants keep working.",
+      confirm: "Reset",
+    });
+    if (!ok) return;
+    setResetting(true);
+    await run(() => api(`/contests/${contest.id}/prize/reset-link`, { body: {} }), "Main invite link reset");
+    setResetting(false);
+  };
   return (
     <Card title="Prize chat" subtitle="The private channel or group that qualified participants get into.">
       {contest.prize_invite_link ? (
@@ -469,13 +495,36 @@ function Prize({ contest, readOnly, onChanged }: { contest: Contest; readOnly: b
               </button>
             </div>
             <p className="muted small">
-              One join-request link for everyone. The bot approves qualified participants and declines everyone else, so
-              sharing the link does not let anyone in.
+              The contest's own join-request link, kept as a check that the bot can make links here. Participants never get
+              it: each one gets a personal link instead.
             </p>
           </div>
         </div>
       ) : (
         <Note tone="warn">No prize chat yet. Qualified users would get no link.</Note>
+      )}
+      {contest.prize_chat_id && (
+        <div className="lockdown">
+          <h4>Keep it closed</h4>
+          <p className="muted small">
+            Each qualified participant gets a personal link. The bot approves a join request through it only from that
+            person, once, and declines everyone else. People can still get in by any route that skips the bot:
+          </p>
+          {current.data?.problem && <ErrorNote>{current.data.problem}</ErrorNote>}
+          <ul className="how">
+            {(current.data?.warnings ?? []).map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+            <li>Anyone already in the chat, and its admins, stay in. Remove test accounts by hand.</li>
+          </ul>
+          {!readOnly && (
+            <div className="row">
+              <Button icon="refresh" onClick={resetLink} busy={resetting}>
+                Reset main link
+              </Button>
+            </div>
+          )}
+        </div>
       )}
       {!readOnly && (
         <>

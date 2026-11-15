@@ -11,6 +11,7 @@ import {
   setLocale,
   upsertUser,
 } from "../contest/service.js";
+import { ensurePrizeLink } from "../contest/prize.js";
 import type { ParticipantWithUser } from "../db/types.js";
 import type { Deps } from "../deps.js";
 import { P } from "../tg/gateway.js";
@@ -22,6 +23,9 @@ import {
   languageView,
   leaderboardView,
   type Locale,
+  type MenuAction,
+  menuAction,
+  menuKeyboard,
   pickLocale,
   progressBar,
   render,
@@ -52,11 +56,13 @@ export function registerHandlers(bot: Bot, d: Deps): void {
    * A message with a picture can only have its caption edited.
    */
   const show = (chatId: number, v: View, msg?: MaybeInaccessibleMessage) => {
-    if (msg) {
+    // Only inline buttons can be put on an edited message; a menu keyboard needs a new one.
+    if (msg && "inline_keyboard" in v.markup) {
       const isPhoto = "photo" in msg && msg.photo !== undefined;
-      if (!isPhoto) return tg.fire(tg.edit(msg.chat.id, msg.message_id, v.text, v.markup));
+      const inline = v.markup;
+      if (!isPhoto) return tg.fire(tg.edit(msg.chat.id, msg.message_id, v.text, inline));
       if (v.text.length <= CAPTION_MAX) {
-        return tg.fire(tg.editCaption(msg.chat.id, msg.message_id, v.text, v.markup));
+        return tg.fire(tg.editCaption(msg.chat.id, msg.message_id, v.text, inline));
       }
       return tg.fire(tg.send(chatId, v.text, { markup: v.markup, priority: P.EDIT }));
     }
@@ -68,6 +74,20 @@ export function registerHandlers(bot: Bot, d: Deps): void {
 
   const home = (a: ActiveContest, p: ParticipantWithUser, locale: Locale): View =>
     p.verified_at ? statusView(a, p, d.me.username, locale) : gateView(a, locale);
+
+  /**
+   * Puts the menu buttons above the message field. A message carries either inline buttons
+   * or this keyboard, so it rides on a short message of its own after the card. Sent below
+   * new users' replies in the queue: during a spike it waits rather than delaying them.
+   */
+  const sendMenu = (userId: number, contest: ActiveContest["contest"] | null, locale: Locale, priority: number = P.NOTICE) =>
+    tg.fire(tg.send(userId, textsOf(contest, locale).menu_ready, { markup: menuKeyboard(contest, locale), priority }));
+
+  /** A view with the menu keyboard in place of its (empty) inline markup. */
+  const withMenu = (v: View, contest: ActiveContest["contest"] | null, locale: Locale): View => ({
+    ...v,
+    markup: menuKeyboard(contest, locale),
+  });
 
   /** Shared start of every button handler: cooldown, active contest, participant. */
   async function context(cb: string, userId: number, key: string, fallback: Locale) {
@@ -103,16 +123,15 @@ export function registerHandlers(bot: Bot, d: Deps): void {
       tg.fire(tg.send(user.id, textsOf(null, locale).no_contest, { priority: P.START }));
     } else {
       const p = await ensureParticipant(db, a.contest.id, user.id, ctx.match.trim());
-      show(user.id, p.verified_at ? statusView(a, p, d.me.username, locale) : gateView(a, locale));
+      if (p.verified_at) {
+        show(user.id, statusView(a, p, d.me.username, locale));
+        sendMenu(user.id, a.contest, locale, P.START);
+      } else {
+        show(user.id, gateView(a, locale));
+      }
     }
     // Set last: if anything above threw, the retry must not be swallowed by the cooldown.
     cooldown.set(`start:${user.id}`, cfg.START_COOLDOWN_MS);
-  });
-
-  dm.command(["lang", "language", "til", "yazyk"], async (ctx) => {
-    const u = await upsertUser(db, ctx.from);
-    const a = await cache.active();
-    show(ctx.from.id, languageView(a?.contest ?? null, pickLocale(u.locale, u.lang, cfg.DEFAULT_LOCALE)));
   });
 
   dm.command("admin", async (ctx) => {
@@ -209,27 +228,72 @@ export function registerHandlers(bot: Bot, d: Deps): void {
     return { a, p, locale };
   }
 
-  // Menu commands. They send a new message, so they work at any time, from anywhere in the chat.
-  dm.command(["link", "me", "progress"], async (ctx) => {
-    const c = await commandContext(ctx.from, "link");
-    if (c) show(ctx.from.id, home(c.a, c.p, c.locale));
-  });
+  type From = { id: number; language_code?: string; first_name: string; username?: string };
 
-  dm.command(["top", "rating", "reyting"], async (ctx) => {
-    const c = await commandContext(ctx.from, "top");
-    if (!c) return;
-    const { a, p, locale } = c;
-    const top = await leaderboard.top(a.contest.id);
-    const counted = p.verified_at !== null && p.disqualified_at === null;
-    const me = counted ? { rank: await leaderboard.rank(a.contest.id, p.invite_count), count: p.invite_count } : null;
-    show(ctx.from.id, leaderboardView(a, locale, top, me));
-  });
+  /** The menu's actions, reached by a command (/top) or by a button of the menu keyboard. */
+  const actions: Record<MenuAction, (from: From) => Promise<void>> = {
+    async link(from) {
+      const c = await commandContext(from, "link");
+      if (!c) return;
+      const { a, p, locale } = c;
+      const qualified = p.qualified_at !== null && p.disqualified_at === null;
+      // A qualified participant without their own prize link yet (it is made when they
+      // qualify; this covers a prize chat set later): make it, then show the card.
+      if (qualified && !p.prize_invite_link && !p.prize_link_used_at && a.contest.prize_chat_id) {
+        void ensurePrizeLink(d, a.contest, p)
+          .then((link) => show(from.id, statusView(a, { ...p, prize_invite_link: link }, d.me.username, locale)))
+          .catch((err) => log.warn({ err }, "prize link failed"));
+        return;
+      }
+      show(from.id, statusView(a, p, d.me.username, locale));
+    },
+    async top(from) {
+      const c = await commandContext(from, "top");
+      if (!c) return;
+      const { a, p, locale } = c;
+      const top = await leaderboard.top(a.contest.id);
+      const counted = p.verified_at !== null && p.disqualified_at === null;
+      const me = counted ? { rank: await leaderboard.rank(a.contest.id, p.invite_count), count: p.invite_count } : null;
+      show(from.id, withMenu(leaderboardView(a, locale, top, me), a.contest, locale));
+    },
+    async friends(from) {
+      const c = await commandContext(from, "friends");
+      if (!c) return;
+      const { rows, total } = await friendsOf(db, c.p.id);
+      show(from.id, withMenu(friendsView(c.a, c.locale, rows, total), c.a.contest, c.locale));
+    },
+    async lang(from) {
+      const u = await upsertUser(db, from);
+      const a = await cache.active();
+      show(from.id, languageView(a?.contest ?? null, pickLocale(u.locale, u.lang, cfg.DEFAULT_LOCALE)));
+    },
+    async help(from) {
+      if (cooldown.active(`help:${from.id}`)) return;
+      cooldown.set(`help:${from.id}`, cfg.START_COOLDOWN_MS);
+      const u = await upsertUser(db, from);
+      const a = await cache.active();
+      const locale = pickLocale(u.locale, u.lang, cfg.DEFAULT_LOCALE);
+      let text = textsOf(a?.contest ?? null, locale).help;
+      if (cfg.ADMIN_IDS.includes(from.id)) {
+        text +=
+          "\n\n<b>Admin</b>\n/admin — one-time sign-in link to the panel\n/signout_all — end every panel session\n/connect — send in a group to list it in the panel";
+      }
+      tg.fire(tg.send(from.id, text, { priority: P.START, markup: a ? menuKeyboard(a.contest, locale) : undefined }));
+    },
+  };
 
-  dm.command(["friends", "dostlar"], async (ctx) => {
-    const c = await commandContext(ctx.from, "friends");
-    if (!c) return;
-    const { rows, total } = await friendsOf(db, c.p.id);
-    show(ctx.from.id, friendsView(c.a, c.locale, rows, total));
+  dm.command(["link", "me", "progress"], (ctx) => actions.link(ctx.from));
+  dm.command(["top", "rating", "reyting"], (ctx) => actions.top(ctx.from));
+  dm.command(["friends", "dostlar"], (ctx) => actions.friends(ctx.from));
+  dm.command(["lang", "language", "til", "yazyk"], (ctx) => actions.lang(ctx.from));
+  dm.command("help", (ctx) => actions.help(ctx.from));
+
+  // A press of a menu keyboard button arrives as plain text with the button's label.
+  dm.on("message:text", async (ctx, next) => {
+    const a = await cache.active();
+    const action = menuAction(a?.contest ?? null, ctx.message.text);
+    if (!action) return next();
+    await actions[action](ctx.from);
   });
 
   bot.callbackQuery(/^lang:(\w+)$/, async (ctx) => {
@@ -244,23 +308,11 @@ export function registerHandlers(bot: Bot, d: Deps): void {
     const p = await getParticipant(db, a.contest.id, ctx.from.id);
     if (!p) return show(ctx.from.id, gateView(a, chosen), ctx.callbackQuery.message);
     show(ctx.from.id, home(a, p, chosen), ctx.callbackQuery.message);
+    if (p.verified_at) sendMenu(ctx.from.id, a.contest, chosen, P.EDIT);
   });
 
   // Any other button (for example from a message of an old contest): just stop the spinner.
   bot.on("callback_query", (ctx) => tg.answer(ctx.callbackQuery.id));
-
-  dm.command("help", async (ctx) => {
-    if (cooldown.active(`help:${ctx.from.id}`)) return;
-    cooldown.set(`help:${ctx.from.id}`, cfg.START_COOLDOWN_MS);
-    const u = await upsertUser(db, ctx.from);
-    const a = await cache.active();
-    let text = textsOf(a?.contest ?? null, pickLocale(u.locale, u.lang, cfg.DEFAULT_LOCALE)).help;
-    if (cfg.ADMIN_IDS.includes(ctx.from.id)) {
-      text +=
-        "\n\n<b>Admin</b>\n/admin — one-time sign-in link to the panel\n/signout_all — end every panel session\n/connect — send in a group to list it in the panel";
-    }
-    tg.fire(tg.send(ctx.from.id, text, { priority: P.START }));
-  });
 
   // Anything else in a private chat: an unknown command, text, a sticker, a photo.
   // One short pointer per user per minute at most, and dropped under load: it must
@@ -272,6 +324,7 @@ export function registerHandlers(bot: Bot, d: Deps): void {
     const a = await cache.active();
     tg.fire(
       tg.send(id, textsOf(a?.contest ?? null, quickLocale(ctx.from.language_code)).unknown, {
+        markup: a ? menuKeyboard(a.contest, quickLocale(ctx.from.language_code)) : undefined,
         priority: P.NOTICE,
         maxAgeMs: cfg.NOTICE_MAX_AGE_MS,
       }),
@@ -367,7 +420,7 @@ export function registerHandlers(bot: Bot, d: Deps): void {
       tg.send(
         userId,
         render(textsOf(a.contest, locale).notice, { name: shown, count, required, bar: progressBar(count, required) }),
-        { priority: P.NOTICE, maxAgeMs: cfg.NOTICE_MAX_AGE_MS },
+        { priority: P.NOTICE, maxAgeMs: cfg.NOTICE_MAX_AGE_MS, markup: menuKeyboard(a.contest, locale) },
       ),
     );
   }
@@ -413,6 +466,7 @@ export function registerHandlers(bot: Bot, d: Deps): void {
     const result = await credit(db, a.contest, p.id, cfg.DEFAULT_LOCALE);
     const fresh = (await getParticipant(db, a.contest.id, p.user_id)) ?? p;
     show(p.user_id, statusView(a, fresh, d.me.username, localeOfP(fresh)), msg);
+    if (result.verifiedNow) sendMenu(p.user_id, a.contest, localeOfP(fresh));
 
     const ref = result.referrer;
     // A referrer who just qualified gets the durable outbox message instead of a notice.

@@ -184,7 +184,7 @@ Every message exists in Uzbek, Russian and English (`src/flow/texts.ts`), and ea
 
 ### 5.1b Progress card screens
 
-The card shown after verification has a progress bar (`▰▰▰▱▱ 3/5`), the personal link and one inline button, "Invite friends" (plus the prize button once qualified). Everything else is in the bot's command menu, so it is reachable at any time: `/link` (the card again), `/top` (top 10 by first name only, plus the user's own place; cached for 15 s per contest), `/friends` (the user's invitees, counted or not subscribed yet), `/lang`, `/help`. Any other message gets a pointer to `/start` and `/help`, at most once a minute per user.
+The card shown after verification has a progress bar (`▰▰▰▱▱ 3/5`), the personal link and one inline button, "Invite friends" (plus the prize button once qualified). Everything else is a persistent menu keyboard above the message field (sent once after verification on a short message of its own, at notice priority, and kept on later replies), and the same actions are commands: `/link` (the card again), `/top` (top 10 by first name only, plus the user's own place; cached for 15 s per contest), `/friends` (the user's invitees, counted or not subscribed yet), `/lang`, `/help`. Any other message gets a pointer to `/start` and `/help`, at most once a minute per user.
 
 When a friend is counted, the referrer gets "Your friend Aziz joined all sponsor channels and was counted — 3/5". Friends counted within `NOTICE_COALESCE_MS` of that are named together in one later message, and notices are dropped rather than delayed when the send queue is long.
 
@@ -223,14 +223,13 @@ If `required_invites = 0`, a user qualifies at their own verification.
 
 ### 5.4 Prize channel access
 
-- When a participant qualifies, the outbox worker creates a **personal** join-request link for them (`creates_join_request = true`, named `P<participant id>`) just before sending the "you qualified" message, and stores it on the participant.
-- On `chat_join_request`: insert into `join_requests` (pending), including the link it came through. A worker decides:
-  - through someone's personal link but from another person → decline ("this link belongs to another participant");
-  - participant of the contest, `qualified_at` set, not disqualified, no recorded sponsor leave → `approveChatJoinRequest`, set `prize_joined_at`, and **revoke** the personal link, so it works once;
-  - anything else → decline and message the user (via `user_chat_id`, valid for 5 minutes).
-- The contest also keeps one shared join-request link, used only as a fallback when a personal link cannot be created; it admits qualified participants and nobody else.
+- When a participant qualifies, the outbox worker creates a **personal** join-request link for them (`creates_join_request = true`, named `P<participant id>`) just before sending the "you qualified" message, and stores it on the participant. If Telegram refuses, the message goes without the button, admins get an alert, and the user's next `/link` tries again. There is no fallback to a shared link.
+- On `chat_join_request`: insert into `join_requests` (pending), including the link it came through. The worker approves **only** a qualified, not disqualified participant with no recorded sponsor leave, coming through **their own** personal link; then it **revokes** that link. Everything else is declined with a reason sent to the user: someone else's link ("belongs to another participant"), any other link of the chat ("only your personal link works"), or not qualified.
+- The contest's own join-request link is created when the prize chat is set, as a check that the bot can make links there. Nobody is given it.
 
-Plain single-use links (`member_limit = 1`) would let whoever holds the link in. A personal join-request link binds access to the person and is revoked after use.
+Telegram has no built-in "this link only for user X" link. `member_limit = 1` admits whoever clicks first, which may be someone it was forwarded to. Join requests are the only point where Telegram tells the bot *who* is joining and *through which link*, so the identity check happens there.
+
+What the bot cannot control, and the panel's prize step lists: a public chat (has a username), invite links made by human admins (the bot can revoke only its own; "Reset main link" replaces the primary link), group members allowed to add people, and anyone already in the chat.
 
 ### 5.4a Winner draw
 

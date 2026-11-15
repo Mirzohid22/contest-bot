@@ -41,7 +41,9 @@ h.fake.push(h.fake.click(4100, "check"));
 
 await waitFor(async () => (await h.participant(100))?.invite_count === 7, "invites counted");
 await waitFor(async () => (await h.participant(200))?.qualified_at, "second referrer qualified");
-h.fake.push(h.fake.joinRequest(PRIZE_CHAT, 100));
+// Joining the prize chat works only through the participant's own link.
+const own = await waitFor(async () => (await h.participant(100))?.prize_invite_link, "personal prize link");
+h.fake.push(h.fake.joinRequest(PRIZE_CHAT, 100, own));
 h.fake.push(h.fake.memberChange(SPONSOR_A, 2001, false)); // an invitee who left a sponsor
 h.fake.push(h.fake.botAdminChange(-1003000000001, true)); // a private group the bot was made admin of
 await waitFor(async () => (await h.participant(100))?.prize_joined_at, "prize chat joined");

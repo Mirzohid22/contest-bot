@@ -109,16 +109,31 @@ describe("bot screens", () => {
 
     h.fake.push(h.fake.command(600, "friends"));
     const friends = await waitFor(
-      () => h.fake.sent(600).find((c) => c.payload.text.includes("doʻstlar")),
+      () => h.fake.sent(600).find((c) => c.payload.text.includes("taklif qilgan doʻstlar")),
       "friends",
     );
     expect(friends.payload.text).toContain("(2)");
+    expect(friends.payload.reply_markup.keyboard).toBeDefined();
     expect(friends.payload.text).toContain("✅");
     expect(friends.payload.text).toContain("⏳");
     // The progress card keeps a single inline button; the rest lives in the command menu.
+    const before = h.fake.sent(600).length;
     h.fake.push(h.fake.command(600, "link"));
-    const card = await waitFor(() => h.fake.sent(600).find((c) => c.payload.text.includes("/top")), "card");
+    const card = await waitFor(
+      () => h.fake.sent(600).slice(before).find((c) => c.payload.text.includes("Shaxsiy havolangiz")),
+      "card",
+    );
     expect(card.payload.reply_markup.inline_keyboard.flat()).toHaveLength(1);
+
+    // The menu keyboard arrived after verification, and its buttons work like the commands.
+    const menu = h.fake.sent(600).find((c) => c.payload.reply_markup?.keyboard);
+    expect(menu!.payload.reply_markup.keyboard.flat().map((b: any) => b.text)).toContain("🏅 Reyting");
+    const n = h.fake.sent(600).length;
+    const press = h.fake.command(600, "x") as any;
+    press.message.text = "🏅 Reyting";
+    delete press.message.entities;
+    h.fake.push(press);
+    await waitFor(() => h.fake.sent(600).slice(n).some((c) => c.payload.text.includes("faol")), "keyboard button");
   });
 
   it("sends the banner as a picture and edits its caption", async () => {

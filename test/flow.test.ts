@@ -186,9 +186,19 @@ describe("contest flow", () => {
     h.fake.push(h.fake.memberChange(SPONSOR_A, 400, false));
     await waitFor(() => h.fake.backlog === 0, "leave handled");
     const declines = h.fake.count("declineChatJoinRequest");
-    h.fake.push(h.fake.joinRequest(PRIZE_CHAT, 400));
+    const own = await waitFor(async () => (await h.participant(400))!.prize_invite_link, "personal link");
+    h.fake.push(h.fake.joinRequest(PRIZE_CHAT, 400, own));
     await waitFor(() => h.fake.count("declineChatJoinRequest") === declines + 1, "decline");
     await waitFor(() => h.fake.sent(400).some((c) => c.payload.text.includes("no longer subscribed")), "reason");
+  });
+
+  it("declines a qualified user who comes through any link but their own", async () => {
+    const declines = h.fake.count("declineChatJoinRequest");
+    // 400 is qualified and subscribed again, but comes through the contest's shared link.
+    h.fake.push(h.fake.memberChange(SPONSOR_A, 400, true));
+    h.fake.push(h.fake.joinRequest(PRIZE_CHAT, 400, "https://t.me/+prize"));
+    await waitFor(() => h.fake.count("declineChatJoinRequest") === declines + 1, "decline");
+    await waitFor(() => h.fake.sent(400).some((c) => c.payload.text.includes("only be joined with the personal link")), "reason");
   });
 
   it("skips a sponsor channel where the bot lost admin rights, and tells the admins", async () => {

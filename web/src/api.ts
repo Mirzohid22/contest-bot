@@ -212,6 +212,7 @@ export interface ChatCheck {
   can_invite_users: boolean;
   ok: boolean;
   problem: string | null;
+  warnings?: string[];
 }
 
 export interface TextDefaults {
