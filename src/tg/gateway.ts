@@ -88,6 +88,8 @@ export class Tg {
         minRate: 1,
         maxRate: cfg.MANAGE_RATE_MAX,
         maxInflight: 5,
+        // 0: approvals, declines and new links, which people wait on; 1: revoking used links.
+        priorities: 2,
       }),
     };
   }
@@ -190,7 +192,8 @@ export class Tg {
   }
 
   revokeInviteLink(chatId: number, link: string): Promise<ChatInviteLink> {
-    return this.lanes.manage.schedule(() => this.raw.revokeChatInviteLink(chatId, link));
+    // Nobody waits on a revoke (the link was just used): it goes after everything else.
+    return this.lanes.manage.schedule(() => this.raw.revokeChatInviteLink(chatId, link), { priority: 1 });
   }
 
   approveJoin(chatId: number, userId: number): Promise<true> {
